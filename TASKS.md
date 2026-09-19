@@ -24,6 +24,7 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done; the last 
 
 ## Verification
 - [x] `npm run typecheck` / `npm run build` clean across both workspaces
+- [x] Unit tests for the fast path (`chrono-node` heuristics) and the deterministic query-answer formatter — the only pure, credential-free logic in the pipeline (`npm run test`, 21 tests)
 - [ ] Manual walkthrough with real credentials — **not done yet**, see `SETUP.md`. Nothing in this repo has touched a real Google Calendar, a real database, or a real Claude API call.
 
 ## Explicitly not in this pass
