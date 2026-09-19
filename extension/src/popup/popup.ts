@@ -76,6 +76,26 @@ function escapeAttr(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// Best-effort: pre-fill the compose box with whatever's selected on the
+// page you were looking at when you opened the popup, so the common case
+// (select a line, click the icon, hit Go) doesn't require the right-click
+// menu at all. activeTab makes this a one-off, no standing host access.
+// Fails silently on chrome://, the Chrome Web Store, PDFs, etc. — those
+// just get a blank compose box, same as before this existed.
+async function readPageSelection(): Promise<string> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return "";
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.getSelection()?.toString() ?? "",
+    });
+    return typeof injection?.result === "string" ? injection.result.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 async function init() {
   const token = await getSessionToken();
   if (!token) {
@@ -94,6 +114,9 @@ async function init() {
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
+    if (!inputText) {
+      inputText = await readPageSelection();
+    }
     setState({ kind: "ready", email: me.email });
   } catch {
     await clearSession();
