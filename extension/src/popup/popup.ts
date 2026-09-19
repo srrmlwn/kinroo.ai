@@ -21,7 +21,30 @@ if (!root) throw new Error("popup root element missing");
 
 function setState(next: View) {
   state = next;
+  persistDraft(next);
   render();
+}
+
+// The popup is a transient Chrome action popup: it's destroyed on any focus
+// loss (switching tabs, clicking another window), not just during OAuth.
+// So anything worth not losing mid-compose gets mirrored to storage here and
+// restored in init() when the popup is reopened. pendingFile (a File) can't
+// be serialized, so an attached-but-unparsed file is the one thing this
+// doesn't cover — everything after parsing (candidates, answers) does.
+function persistDraft(view: View) {
+  let payload: unknown = null;
+  if (view.kind === "confirming") {
+    payload = { kind: "confirming", candidates: view.candidates };
+  } else if (view.kind === "answer") {
+    payload = { kind: "answer", text: view.text };
+  } else if (view.kind === "ready") {
+    payload = { kind: "ready", inputText };
+  }
+  if (payload) {
+    chrome.storage.local.set({ draft: payload }).catch(() => {});
+  } else {
+    chrome.storage.local.remove("draft").catch(() => {});
+  }
 }
 
 function toDatetimeLocalValue(iso: string): string {
@@ -61,6 +84,16 @@ async function init() {
   }
   try {
     const me = await getMe();
+    const { draft } = await chrome.storage.local.get("draft");
+    if (draft?.kind === "confirming" && Array.isArray(draft.candidates) && draft.candidates.length > 0) {
+      setState({ kind: "confirming", email: me.email, candidates: draft.candidates });
+      return;
+    }
+    if (draft?.kind === "answer" && typeof draft.text === "string") {
+      setState({ kind: "answer", email: me.email, text: draft.text });
+      return;
+    }
+    inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
     setState({ kind: "ready", email: me.email });
   } catch {
     await clearSession();
@@ -184,7 +217,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
              Attach a screenshot, photo, or PDF
            </label>`
     }
-    <button id="submit" class="primary" ${view.busy ? "disabled" : ""}>${view.busy ? "Working…" : "Add"}</button>
+    <button id="submit" class="primary" ${view.busy ? "disabled" : ""}>${view.busy ? "Working…" : "Go"}</button>
   `;
 }
 
@@ -270,6 +303,7 @@ function attachHandlers() {
     const textInput = document.getElementById("text-input") as HTMLTextAreaElement | null;
     textInput?.addEventListener("input", (e) => {
       inputText = (e.target as HTMLTextAreaElement).value;
+      persistDraft(state);
     });
     textInput?.addEventListener("paste", (e) => {
       const items = e.clipboardData?.items;
