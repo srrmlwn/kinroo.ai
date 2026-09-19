@@ -1,4 +1,4 @@
-import { connectGoogle, clearSession, getSessionToken } from "../auth";
+import { clearSession, getSessionToken } from "../auth";
 import { getMe, parseText, parseFile, createEvents, ApiError } from "../api";
 import type { EventCandidate } from "../types";
 
@@ -71,8 +71,12 @@ async function init() {
 async function handleConnect() {
   setState({ kind: "loading" });
   try {
-    const { email } = await connectGoogle();
-    setState({ kind: "ready", email });
+    // Runs in the background worker, not here — chrome.identity's consent
+    // window steals focus, and Chrome would close this popup (killing an
+    // in-popup fetch/storage.set) before the flow finished.
+    const result = await chrome.runtime.sendMessage({ type: "connect-google" });
+    if (!result?.ok) throw new Error(result?.error ?? "Sign-in failed");
+    setState({ kind: "ready", email: result.email });
   } catch (err) {
     setState({
       kind: "unauthenticated",
