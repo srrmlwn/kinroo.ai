@@ -275,6 +275,50 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   `;
 }
 
+const RECURRENCE_FREQ_LABEL: Record<string, string> = {
+  DAILY: "day",
+  WEEKLY: "week",
+  MONTHLY: "month",
+  YEARLY: "year",
+};
+
+const RECURRENCE_DAY_LABEL: Record<string, string> = {
+  MO: "Mon",
+  TU: "Tue",
+  WE: "Wed",
+  TH: "Thu",
+  FR: "Fri",
+  SA: "Sat",
+  SU: "Sun",
+};
+
+// Turns an RRULE into a short human-readable summary for the confirm list —
+// not a full RFC 5545 renderer, just enough for the common cases the
+// extraction schema actually produces (FREQ/INTERVAL/BYDAY/COUNT/UNTIL).
+function formatRecurrence(rule: string): string {
+  const parts = Object.fromEntries(
+    rule
+      .replace(/^RRULE:/, "")
+      .split(";")
+      .map((part) => part.split("=") as [string, string]),
+  );
+
+  const interval = parts.INTERVAL ? Number(parts.INTERVAL) : 1;
+  const freqWord = RECURRENCE_FREQ_LABEL[parts.FREQ] ?? parts.FREQ?.toLowerCase() ?? "time";
+  let label = `Every ${interval > 1 ? `${interval} ` : ""}${freqWord}${interval > 1 ? "s" : ""}`;
+
+  if (parts.BYDAY) {
+    label += ` on ${parts.BYDAY.split(",")
+      .map((day) => RECURRENCE_DAY_LABEL[day] ?? day)
+      .join(", ")}`;
+  }
+  if (parts.COUNT) label += `, ${parts.COUNT} times`;
+  else if (parts.UNTIL) {
+    label += ` until ${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}`;
+  }
+  return label;
+}
+
 function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
   const rows = view.candidates
     .map(
@@ -290,6 +334,11 @@ function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
             <span>–</span>
             <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" />
           </div>
+          ${
+            c.recurrence?.length
+              ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence[0]))}</p>`
+              : ""
+          }
           ${
             c.conflicts?.length
               ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(c.conflicts[0].title)}"${c.conflicts.length > 1 ? ` +${c.conflicts.length - 1} more` : ""}</p>`

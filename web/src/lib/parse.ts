@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { settings as settingsTable } from "./db/schema";
-import { looksLikeQuery, fastPathExtractCreate, fastPathQueryRange } from "./fast-path";
+import { looksLikeQuery, looksLikeRecurring, fastPathExtractCreate, fastPathQueryRange } from "./fast-path";
 import { extractWithClaude, type ClaudeInput } from "./claude";
 import { listEvents, type EventCandidate } from "./google-calendar";
 import { formatQueryAnswer } from "./format-answer";
@@ -114,12 +114,16 @@ export async function parseInput(
       return { intent: "query", candidates: [], answer, usedLlm: false, inputType: "text" };
     }
   } else {
-    const candidate = fastPathExtractCreate(
-      text,
-      referenceDate,
-      userSettings.timezone,
-      userSettings.defaultEventDurationMin,
-    );
+    // Recurring phrasing ("every Monday") skips the fast path — it has no
+    // way to encode an RRULE — and falls through to the Claude branch below.
+    const candidate = looksLikeRecurring(text)
+      ? null
+      : fastPathExtractCreate(
+          text,
+          referenceDate,
+          userSettings.timezone,
+          userSettings.defaultEventDurationMin,
+        );
     if (candidate) {
       logLlmCall({
         userId,

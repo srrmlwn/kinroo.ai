@@ -42,6 +42,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
               description: "ISO 8601 datetime with UTC offset",
             },
             location: { type: "string" },
+            recurrence: {
+              type: "string",
+              description:
+                "An iCalendar RRULE body (RFC 5545) if this event repeats, e.g. 'FREQ=WEEKLY;BYDAY=MO;COUNT=10' or 'FREQ=DAILY;UNTIL=20261231T000000Z'. Omit the 'RRULE:' prefix. Omit this field entirely for a one-off event. If the user states no end ('every Monday'), default to COUNT=52.",
+            },
           },
           required: ["title", "start", "end"],
         },
@@ -99,6 +104,7 @@ export async function extractWithClaude(
     opts.forceCreateIntent
       ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
       : `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon") rather than a request to add something — in that case leave candidates empty and set query_start/query_end to the date range the question refers to. Set intent to "unknown" if the text is neither a creation request nor a calendar question.`,
+    `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body.`,
   ].join(" ");
 
   const content: Anthropic.ContentBlockParam[] =
@@ -134,7 +140,13 @@ export async function extractWithClaude(
 
   const parsed = toolUse.input as {
     intent: "create" | "query" | "unknown";
-    candidates?: Array<{ title: string; start: string; end: string; location?: string }>;
+    candidates?: Array<{
+      title: string;
+      start: string;
+      end: string;
+      location?: string;
+      recurrence?: string;
+    }>;
     query_start?: string;
     query_end?: string;
   };
@@ -142,8 +154,12 @@ export async function extractWithClaude(
   return {
     intent: opts.forceCreateIntent ? "create" : parsed.intent,
     candidates: (parsed.candidates ?? []).map((c) => ({
-      ...c,
+      title: c.title,
+      start: c.start,
+      end: c.end,
+      location: c.location,
       timezone: opts.timezone,
+      recurrence: c.recurrence ? [`RRULE:${c.recurrence}`] : undefined,
     })),
     queryRange:
       parsed.query_start && parsed.query_end

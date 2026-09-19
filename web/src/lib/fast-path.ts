@@ -8,6 +8,17 @@ export function looksLikeQuery(text: string): boolean {
   return QUESTION_PATTERN.test(text.trim());
 }
 
+const RECURRENCE_PATTERN =
+  /\b(every|each|daily|weekly|biweekly|monthly|repeats?|recurring)\b/i;
+
+// The regex fast path has no way to encode a recurrence rule, so text that
+// smells like a repeating event skips it entirely and always falls back to
+// Claude — otherwise "every Monday at 6pm" would silently create a single
+// one-off event with no series attached.
+export function looksLikeRecurring(text: string): boolean {
+  return RECURRENCE_PATTERN.test(text);
+}
+
 // Regex/date-library fast path for the common "<title> at <time>" phrasing.
 // Returns null when it isn't confident, so the caller falls back to Claude
 // rather than writing a bad title.

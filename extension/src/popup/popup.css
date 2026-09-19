@@ -163,6 +163,12 @@ textarea {
   margin: 4px 0 0;
 }
 
+.recurrence-note {
+  font-size: 11px;
+  color: #666;
+  margin: 4px 0 0;
+}
+
 .confirm-actions {
   display: flex;
   justify-content: space-between;

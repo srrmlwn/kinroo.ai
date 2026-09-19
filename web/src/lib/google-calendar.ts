@@ -9,6 +9,9 @@ export interface EventCandidate {
   end: string; // ISO 8601 datetime
   timezone?: string;
   location?: string;
+  // iCalendar RRULE lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10"].
+  // Passed straight through to the Calendar API's `recurrence` field.
+  recurrence?: string[];
 }
 
 export interface CalendarEvent {
@@ -87,6 +90,7 @@ export async function insertEvent(
         location: candidate.location,
         start: { dateTime: candidate.start, timeZone: candidate.timezone },
         end: { dateTime: candidate.end, timeZone: candidate.timezone },
+        recurrence: candidate.recurrence,
       }),
     },
   );
