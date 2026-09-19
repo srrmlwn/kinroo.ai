@@ -19,3 +19,4 @@ extension/config.json
 *.pem
 .vercel
 npm-debug.log*
+.neon

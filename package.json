@@ -1,12 +1,19 @@
 {
   "name": "kinroo-ai",
   "private": true,
-  "workspaces": ["web", "extension"],
+  "workspaces": [
+    "web",
+    "extension"
+  ],
   "scripts": {
     "dev:web": "npm run dev --workspace=web",
     "dev:extension": "npm run watch --workspace=extension",
     "build": "npm run build --workspace=web && npm run build --workspace=extension",
     "typecheck": "npm run typecheck --workspace=extension --if-present && cd web && npx tsc --noEmit",
     "test": "npm run test --workspace=web"
+  },
+  "dependencies": {
+    "@neon/config": "^1.7.2",
+    "@neon/env": "^1.4.3"
   }
 }
