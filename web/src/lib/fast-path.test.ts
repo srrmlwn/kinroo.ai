@@ -1,0 +1,97 @@
+import { describe, it, expect } from "vitest";
+import { looksLikeQuery, fastPathExtractCreate, fastPathQueryRange } from "./fast-path";
+
+// Fixed reference: Friday 2026-09-18, noon Pacific.
+const REF = new Date("2026-09-18T12:00:00-07:00");
+const TZ = "America/Los_Angeles";
+
+describe("looksLikeQuery", () => {
+  it.each([
+    "do I have plans Saturday?",
+    "what's on Saturday?",
+    "am I free tomorrow?",
+    "is there anything Tuesday?",
+    "any plans this weekend?",
+  ])("treats %j as a query", (text) => {
+    expect(looksLikeQuery(text)).toBe(true);
+  });
+
+  it.each([
+    "doctor's appointment at 9am tomorrow",
+    "schedule dentist next tuesday at 2pm",
+    "team practice at 4pm on Saturday",
+  ])("does not treat %j as a query", (text) => {
+    expect(looksLikeQuery(text)).toBe(false);
+  });
+});
+
+describe("fastPathExtractCreate", () => {
+  it("extracts title and resolves 'tomorrow' relative to the reference date", () => {
+    const result = fastPathExtractCreate(
+      "doctor's appointment at 9am tomorrow",
+      REF,
+      TZ,
+      30,
+    );
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("doctor's appointment");
+    // 9am Pacific on 2026-09-19 (the day after the Sept 18 reference).
+    expect(result?.start).toBe("2026-09-19T16:00:00.000Z");
+  });
+
+  it("defaults duration when none is stated", () => {
+    const result = fastPathExtractCreate("lunch with sam tomorrow 12:30pm", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    const start = new Date(result!.start).getTime();
+    const end = new Date(result!.end).getTime();
+    expect(end - start).toBe(30 * 60_000);
+  });
+
+  it("resolves 'next tuesday' forward from the reference date", () => {
+    const result = fastPathExtractCreate("dentist next tuesday at 2pm", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("dentist");
+    expect(new Date(result!.start).getUTCDate()).toBe(22); // 2026-09-22 is the next Tuesday after Fri 9/18
+  });
+
+  it("extracts the title when the date phrase comes first", () => {
+    const result = fastPathExtractCreate("tomorrow at 9am doctor appointment", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("doctor appointment");
+  });
+
+  it("strips a leading comma left over from the matched span", () => {
+    const result = fastPathExtractCreate("meeting, tuesday at 3pm", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title.startsWith(",")).toBe(false);
+  });
+
+  it("returns null when there's no date/time to anchor on (defers to the LLM)", () => {
+    expect(fastPathExtractCreate("call mom", REF, TZ, 30)).toBeNull();
+  });
+
+  it("returns null when the leftover title is too short to be confident", () => {
+    // The whole string is consumed by the date/time match, leaving nothing.
+    expect(fastPathExtractCreate("tomorrow at 9am", REF, TZ, 30)).toBeNull();
+  });
+});
+
+describe("fastPathQueryRange", () => {
+  it("resolves a bare weekday to that whole day", () => {
+    const range = fastPathQueryRange("Saturday", REF, TZ);
+    expect(range).not.toBeNull();
+    expect(range?.start.getHours()).toBe(0);
+    expect(range?.end.getHours()).toBe(23);
+  });
+
+  it("resolves a specific time to a narrow window, not the whole day", () => {
+    const range = fastPathQueryRange("3pm tomorrow", REF, TZ);
+    expect(range).not.toBeNull();
+    const spanMinutes = (range!.end.getTime() - range!.start.getTime()) / 60_000;
+    expect(spanMinutes).toBeLessThan(120);
+  });
+
+  it("returns null when there's nothing to anchor a range on", () => {
+    expect(fastPathQueryRange("do I have anything going on", REF, TZ)).toBeNull();
+  });
+});
