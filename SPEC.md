@@ -106,11 +106,13 @@ Because Google Calendar is the real backend, "family" can eventually mean *a Goo
 
 ## Auth flow
 
-1. Extension popup, unauthenticated state: "Connect Google Calendar" button opens `web`'s hosted OAuth flow in a new tab (`/login` → Google consent → `/api/auth/google/callback`).
-2. Scope requested: `https://www.googleapis.com/auth/calendar.events` only (not full calendar scope — least privilege).
-3. Backend exchanges the code, stores refresh token in `oauth_tokens`, creates/updates the `users` row, issues a session token.
-4. Session token is handed back to the extension (mechanism TBD at implementation time — likely `chrome.identity.launchWebAuthFlow` or a success-page → `postMessage` → content script relay) and stored in `chrome.storage.local`.
-5. All subsequent extension → backend calls carry the session token; the backend maps it to a user and uses that user's stored Google refresh token to call the Calendar API server-side. The extension never sees the Google token directly.
+**Implemented.** No hosted login page — the extension drives Google's consent screen directly via `chrome.identity.launchWebAuthFlow`, and the backend does the token exchange.
+
+1. Extension popup, unauthenticated state: "Connect Google Calendar" opens Google's OAuth consent screen via `chrome.identity.launchWebAuthFlow`, with `redirect_uri = chrome.identity.getRedirectURL()` (a `https://<extension-id>.chromiumapp.org/` URL, which must be registered as an authorized redirect URI on the Google Cloud OAuth client — see `SETUP.md`).
+2. Scopes requested: `calendar.events`, plus `openid email` (needed to identify the user via Google's userinfo endpoint — narrower than requesting `profile`/full calendar access).
+3. `launchWebAuthFlow` resolves with the redirect URL containing `?code=...`; the extension extracts the code and POSTs `{ code, redirectUri, timezone }` to `POST /api/auth/google/exchange`.
+4. The backend exchanges the code for tokens (client secret never touches the extension), fetches the profile, upserts `users`/`oauth_tokens`/`settings` (seeding `settings.timezone` from the client-supplied `Intl` timezone rather than defaulting blindly to UTC), and returns a session JWT.
+5. The extension stores the session JWT in `chrome.storage.local` and sends it as `Authorization: Bearer <token>` on every subsequent call. The backend verifies it, maps it to a user, and uses that user's stored (encrypted) Google refresh token to call the Calendar API server-side — the extension never sees the Google token directly.
 
 ## Core pipeline (shared shape, extension is the only caller in v1)
 
@@ -132,13 +134,16 @@ Every step logs to `llm_calls` (fire-and-forget, must never block the user-facin
 
 ## API endpoints (Next.js route handlers, `web/src/app/api/*`)
 
-- `GET /api/health` — liveness check. **Implemented.**
-- `GET /api/auth/google/callback` — OAuth code exchange.
-- `POST /api/parse` — text, or an image/PDF (multipart), in; `{ intent, candidates: Extraction[], usedLLM, inputType }` out. Called before showing the confirm list; does not write anything.
-- `POST /api/events` — create one or more events (accepts an array, so a multi-candidate flyer commits in one request on confirm).
-- `GET /api/events?start=&end=` — list events in a range (query mode).
+All implemented as of this revision:
 
-Everything else described above (auth, parse, events) is unimplemented scaffolding as of this spec — see `web/src/app/api/health/route.ts` for the only real route so far.
+- `GET /api/health` — liveness check.
+- `POST /api/auth/google/exchange` — OAuth code → session JWT (see Auth flow above).
+- `GET /api/auth/me` — resolves the bearer session token to `{ email, name }`; lets the popup confirm connected state.
+- `POST /api/parse` — text (JSON `{ text }`) or an image/PDF (`multipart/form-data`, field `file`) in; `{ intent, candidates, answer?, usedLLM, inputType }` out. For `intent: "query"`, the backend already ran the Calendar read and `answer` is ready to display — no second request needed. Does not write anything for `create`.
+- `POST /api/events` — `{ candidates: EventCandidate[] }` in; creates each via `events.insert` and returns a per-candidate ok/error array (partial failure is visible, not all-or-nothing).
+- `GET /api/events?start=&end=` — range read, used internally by the query path and exposed for reuse.
+
+All require `Authorization: Bearer <session token>` except `/api/health` and `/api/auth/google/exchange`.
 
 ## Acceptance criteria for "v1 done"
 

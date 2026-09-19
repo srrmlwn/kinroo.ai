@@ -1,11 +1,12 @@
 body {
   margin: 0;
-  width: 280px;
+  width: 340px;
   font-family:
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  color: #1a1a1a;
 }
 
 .popup {
@@ -14,19 +15,163 @@ body {
 
 h1 {
   font-size: 16px;
-  margin: 0 0 8px;
+  margin: 0 0 12px;
 }
 
-.status {
+.lead {
   font-size: 13px;
+  color: #555;
+  margin: 0 0 12px;
+}
+
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
   color: #666;
-  margin: 0;
 }
 
-.status.ok {
-  color: #1a7f37;
+button {
+  font: inherit;
+  cursor: pointer;
 }
 
-.status.error {
+button.primary {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  margin-top: 8px;
+  background: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+button.primary:disabled {
+  background: #9db8e8;
+  cursor: default;
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: #1a73e8;
+  font-size: 12px;
+  padding: 0;
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.file-label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+}
+
+.file-chip {
+  margin-top: 8px;
+  font-size: 12px;
+  background: #f1f3f4;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.notice {
+  font-size: 12px;
+  color: #333;
+  background: #f1f3f4;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 8px 0 0;
+}
+
+.notice.error {
+  background: #fce8e6;
   color: #c1121f;
+}
+
+.candidates {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.candidate {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.candidate-select {
+  padding-top: 4px;
+}
+
+.candidate-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.candidate-fields input[type="text"] {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 2px 0;
+}
+
+.candidate-fields input[type="text"]:focus {
+  outline: none;
+  border-bottom-color: #1a73e8;
+}
+
+.candidate-times {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #666;
+}
+
+.candidate-times input {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.confirm-actions .primary {
+  width: auto;
+  margin-top: 0;
+  padding: 8px 16px;
+}
+
+.answer {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
 }

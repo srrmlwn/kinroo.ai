@@ -19,6 +19,17 @@ fs.copyFileSync(
   path.join(outdir, "popup.css"),
 );
 
+const configSrc = fs.existsSync(path.join(__dirname, "config.json"))
+  ? "config.json"
+  : "config.example.json";
+if (configSrc === "config.example.json") {
+  console.warn(
+    "extension/config.json not found — using config.example.json. " +
+      "Copy it to config.json and fill in your Google OAuth client ID (see SETUP.md).",
+  );
+}
+fs.copyFileSync(path.join(__dirname, configSrc), path.join(outdir, "config.json"));
+
 const buildOptions = {
   entryPoints: {
     popup: path.join(__dirname, "src/popup/popup.ts"),
