@@ -1,0 +1,17 @@
+# dependencies (npm workspaces hoist to the root)
+node_modules/
+
+# build output
+extension/dist/
+web/.next/
+web/out/
+*.tsbuildinfo
+
+# env files — never commit real secrets, .env.example files are fine
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
+npm-debug.log*
