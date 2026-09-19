@@ -34,10 +34,23 @@ function fromDatetimeLocalValue(value: string): string {
   return new Date(value).toISOString();
 }
 
+// Safe for text-node context (between tags) — the browser's serializer
+// escapes &, <, > there but NOT quote characters, so this must never be
+// used inside a quoted HTML attribute (use escapeAttr for that).
 function escapeHtml(text: string): string {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Safe for interpolating into a quoted HTML attribute value.
+function escapeAttr(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function init() {
@@ -180,7 +193,7 @@ function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
           <input type="checkbox" class="cand-selected" data-index="${i}" ${c.selected ? "checked" : ""} />
         </label>
         <div class="candidate-fields">
-          <input type="text" class="cand-title" data-index="${i}" value="${escapeHtml(c.title)}" />
+          <input type="text" class="cand-title" data-index="${i}" value="${escapeAttr(c.title)}" />
           <div class="candidate-times">
             <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" />
             <span>–</span>
