@@ -5,13 +5,17 @@ node_modules/
 extension/dist/
 web/.next/
 web/out/
+web/coverage/
 *.tsbuildinfo
 
-# env files — never commit real secrets, .env.example files are fine
+# env files / local secrets — never commit real values, .env.example is fine
 .env
 .env.*
 !.env.example
+extension/config.json
 
 # misc
 .DS_Store
+*.pem
+.vercel
 npm-debug.log*

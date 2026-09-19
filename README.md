@@ -6,9 +6,11 @@ See [`SPEC.md`](./SPEC.md) for the full v1 spec and [`CLAUDE.md`](./CLAUDE.md) f
 
 ## Status
 
-Early scaffolding — see "Current state" in `CLAUDE.md`.
+v1 (compose + query, text/image/PDF input) is implemented — see "Current state" in `CLAUDE.md`. Not yet run against real credentials; **start with [`SETUP.md`](./SETUP.md)**, which walks through the Google Cloud, Neon, and Anthropic setup this needs before it does anything.
 
 ## Quick start
+
+Full first-time setup (Google OAuth client, database, API keys) is in [`SETUP.md`](./SETUP.md) — do that first. Once configured:
 
 ```bash
 npm install

@@ -52,7 +52,7 @@ To load the extension in Chrome during development: `chrome://extensions` → en
 
 ## Environment variables
 
-See `web/.env.example`. Required for local dev: `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `SESSION_SECRET`, `ANTHROPIC_API_KEY`.
+See `web/.env.example` and, for first-time setup, `SETUP.md`. Required for local dev: `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`. The extension also needs its own `extension/config.json` (gitignored, see `extension/config.example.json`).
 
 ## Prior art (not in this repo)
 
@@ -60,4 +60,4 @@ An earlier prototype, `simple-family-calendar`, explored a different bet — its
 
 ## Current state
 
-Scaffolding only. The only real route handler is `GET /api/health`. Everything else in `SPEC.md`'s API section is unbuilt. Don't assume auth, parsing, or event creation work yet — check `web/src/app/api/` before claiming a feature exists.
+v1 is implemented end to end (auth, parse, events, popup UI) but **not yet run against real credentials** — see `SETUP.md` for the external accounts (Google Cloud, Neon, Anthropic) needed before it can actually be exercised, and `TASKS.md` for what's checked off. Don't assume it's been manually verified working until `SETUP.md`'s walkthrough has actually been run once.
