@@ -79,20 +79,34 @@ function escapeAttr(text: string): string {
 // Best-effort: pre-fill the compose box with whatever's selected on the
 // page you were looking at when you opened the popup, so the common case
 // (select a line, click the icon, hit Go) doesn't require the right-click
-// menu at all. activeTab makes this a one-off, no standing host access.
-// Fails silently on chrome://, the Chrome Web Store, PDFs, etc. — those
-// just get a blank compose box, same as before this existed.
-async function readPageSelection(): Promise<string> {
+// menu at all. Falls back to the whole page's visible text when nothing is
+// selected, so clicking the icon on an open invite/itinerary page still
+// prefills something worth editing. activeTab makes this a one-off, no
+// standing host access. Fails silently on chrome://, the Chrome Web Store,
+// PDFs, etc. — those just get a blank compose box, same as before this
+// existed.
+const MAX_PAGE_SCAN_CHARS = 4000;
+
+async function readPageContent(): Promise<{ text: string; scanned: boolean }> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return "";
+    if (!tab?.id) return { text: "", scanned: false };
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.getSelection()?.toString() ?? "",
+      func: () => {
+        const selection = window.getSelection()?.toString().trim() ?? "";
+        if (selection) return { text: selection, scanned: false };
+        return { text: document.body?.innerText ?? "", scanned: true };
+      },
     });
-    return typeof injection?.result === "string" ? injection.result.trim() : "";
+    const result = injection?.result as { text: string; scanned: boolean } | undefined;
+    if (!result) return { text: "", scanned: false };
+    return {
+      text: result.text.trim().slice(0, MAX_PAGE_SCAN_CHARS),
+      scanned: result.scanned,
+    };
   } catch {
-    return "";
+    return { text: "", scanned: false };
   }
 }
 
@@ -114,10 +128,17 @@ async function init() {
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
+    let scannedPage = false;
     if (!inputText) {
-      inputText = await readPageSelection();
+      const page = await readPageContent();
+      inputText = page.text;
+      scannedPage = page.scanned && page.text.length > 0;
     }
-    setState({ kind: "ready", email: me.email });
+    setState({
+      kind: "ready",
+      email: me.email,
+      notice: scannedPage ? "Scanned this page — edit or clear before sending." : undefined,
+    });
   } catch {
     await clearSession();
     setState({ kind: "unauthenticated" });
