@@ -9,9 +9,9 @@ A natural-language interface layer on top of Google Calendar — not a calendar 
 ## v1 scope
 
 **In scope:**
-1. Chrome extension, compose mode — type free text in the popup, get a Google Calendar event.
+1. Chrome extension, compose mode — type free text, paste a screenshot, or upload an image/PDF (flyer, invite, itinerary) in the popup; get one or more Google Calendar events.
 2. Chrome extension, query mode — ask a natural-language question about the calendar, get an answer.
-3. Single Google account per user. Confirm-before-write on every create/update.
+3. Single Google account per user. Confirm-before-write on every create/update, including a bulk confirm list when one input yields multiple candidate events (e.g. a season schedule flyer).
 
 **Explicitly out of scope for v1** (do not build, but see "Family-readiness notes" below for the conventions that keep these open):
 - Page-scan extraction (click extension on an open page, find events in visible text) — phase 2.
@@ -28,6 +28,8 @@ An earlier prototype (`simple-family-calendar`, not in this repo) built its own 
 - Google Calendar is read/write from day one — no shadow event store — because that's what "we're not rebuilding a calendar" means in practice, and because Google's own sharing/ACL model gives us a much cheaper path to family support later (see below) than building permissions ourselves.
 - The Chrome extension ships first because it's the fastest loop to validate whether NLP-driven event creation is accurate and trustworthy enough to build the other channels on top of.
 
+Competitive research (2026-09-18) found plain-text compose and image/flyer parsing already shipped as *separate* tools — a 300K-user Chrome extension for text-only compose; several standalone screenshot/flyer-to-calendar apps (ScreenToCal, Herds, Image2Cal) — plus Google's own Gemini doing native create+query inside Calendar itself. None combine text input, image/attachment input, and query in one surface. That combination, not the underlying NLP capability (which is now widely available), is the actual differentiation — hence folding image/attachment input into v1 rather than deferring it.
+
 ## Architecture
 
 ```
@@ -41,7 +43,7 @@ Next.js app (web/, deployed to Vercel)
   minimal pages = OAuth login/callback, settings (later)
         │
         ├──► Google Calendar API (events.insert, events.list) — the data
-        ├──► Claude API — LLM fallback parsing
+        ├──► Claude API — LLM fallback parsing (text, and always for image/PDF input)
         └──► Postgres (Neon) — thin: users, oauth tokens, settings, LLM telemetry only
 ```
 
@@ -77,9 +79,11 @@ llm_calls   -- telemetry, cheap to add now, valuable before any architecture dec
   id                  uuid pk
   user_id             uuid fk -> users.id
   channel             text        -- 'extension-compose', 'extension-query', ...
-  used_llm            boolean     -- false = fast-path regex handled it alone
+  input_type          text        -- 'text' | 'image' | 'pdf'
+  used_llm            boolean     -- false = fast-path regex handled it alone (text only; image/pdf always true)
   model               text nullable
   intent              text        -- 'create' | 'query' | 'unknown'
+  candidate_count     int default 1   -- events extracted in this call; >1 for flyers/schedules
   prompt_tokens       int nullable
   completion_tokens   int nullable
   latency_ms          int
@@ -111,26 +115,27 @@ Because Google Calendar is the real backend, "family" can eventually mean *a Goo
 ## Core pipeline (shared shape, extension is the only caller in v1)
 
 ```
-text ──► intent classification ──► extraction ──► confirm ──► write/read
+input (text | image | pdf) ──► intent classification ──► extraction ──► confirm list ──► write/read
 ```
 
-1. **Intent classification** — regex/heuristic first pass: does this look like a creation ("X at Y", "schedule...", a weekday/date + time) or a question ("do I have", "what's on", "am I free")? Ambiguous or low-confidence → Claude call classifies intent as part of the same request that does extraction.
-2. **Extraction (create)** — pull `{ title, start, end, timezone, location? }` from text.
-   - Fast path: regex/date-library parsing (e.g. relative dates, "Xam/pm") for common phrasings.
-   - Fallback: Claude call with a structured tool-call schema when the fast path can't confidently fill required fields.
-   - No explicit duration stated → default from `settings.default_event_duration_min`.
-3. **Confirm** — popup shows the parsed event (editable title/time) before any write. This is non-negotiable in v1 regardless of parser confidence.
-4. **Write** — on confirm, `events.insert` against `settings.default_calendar_id`.
-5. **Query** — parse a date/range from the question, `events.list` against the same window, then format a short natural-language answer. LLM involvement here is about phrasing the answer, not about writing anything — no confirmation step needed since nothing is mutated.
+1. **Input** — text typed in the popup, or an image/PDF pasted (clipboard) or uploaded (file picker): a screenshot of an invite email, a photo of a flyer, an itinerary attachment.
+2. **Intent classification** — text only: regex/heuristic first pass — does this look like a creation ("X at Y", "schedule...", a weekday/date + time) or a question ("do I have", "what's on", "am I free")? Ambiguous or low-confidence → Claude call classifies intent as part of the same request that does extraction. Image/PDF input skips straight to extraction — an uploaded file is never a query.
+3. **Extraction (create)** — always returns an **array** of 0+ candidate events `{ title, start, end, timezone, location? }`. Plain text almost always yields exactly one candidate; an image of a multi-date flyer can yield many in a single call.
+   - Fast path (text only): regex/date-library parsing (e.g. relative dates, "Xam/pm") for common single-event phrasings.
+   - Fallback (text when the fast path can't confidently fill required fields; **always** for image/PDF): one Claude call with the raw text or an image/PDF content block, using a structured tool-call schema that returns an array.
+   - Any candidate missing an explicit duration → default from `settings.default_event_duration_min`.
+4. **Confirm** — popup shows every candidate as an editable row in one list, whether there's 1 or 20. User can accept all, edit any row inline, or deselect individual rows before writing. Single-event and bulk-flyer cases share this exact UI — no separate "bulk mode." Non-negotiable in v1 regardless of parser confidence.
+5. **Write** — on confirm, `events.insert` for each accepted candidate, against `settings.default_calendar_id`.
+6. **Query** — text only. Parse a date/range from the question, `events.list` against the same window, then format a short natural-language answer. LLM involvement here is about phrasing the answer, not about writing anything — no confirmation step needed since nothing is mutated.
 
-Every step logs to `llm_calls` (fire-and-forget, must never block the user-facing response) — we want real data on fast-path-vs-LLM split and parse accuracy before tuning anything.
+Every step logs to `llm_calls` (fire-and-forget, must never block the user-facing response) — we want real data on fast-path-vs-LLM split, input-type mix, and parse accuracy before tuning anything.
 
 ## API endpoints (Next.js route handlers, `web/src/app/api/*`)
 
 - `GET /api/health` — liveness check. **Implemented.**
 - `GET /api/auth/google/callback` — OAuth code exchange.
-- `POST /api/parse` — text in, `{ intent, extraction, usedLLM }` out. Called before showing the confirm preview; does not write anything.
-- `POST /api/events` — create an event (called on confirm).
+- `POST /api/parse` — text, or an image/PDF (multipart), in; `{ intent, candidates: Extraction[], usedLLM, inputType }` out. Called before showing the confirm list; does not write anything.
+- `POST /api/events` — create one or more events (accepts an array, so a multi-candidate flyer commits in one request on confirm).
 - `GET /api/events?start=&end=` — list events in a range (query mode).
 
 Everything else described above (auth, parse, events) is unimplemented scaffolding as of this spec — see `web/src/app/api/health/route.ts` for the only real route so far.
@@ -141,11 +146,14 @@ Everything else described above (auth, parse, events) is unimplemented scaffoldi
 - Typing "doctor's appointment at 9am tomorrow" shows a confirm preview with the correct date/time, and clicking confirm creates a real event on that Google account's primary calendar.
 - Typing "do I have plans Saturday?" returns an answer that matches what's actually on the calendar.
 - A wrong parse can be corrected before confirming (edit title/time in the preview) rather than only accept/reject.
-- `llm_calls` has rows for both fast-path and LLM-fallback calls, so we can tell after a few days of use what fraction of inputs need the LLM at all.
+- Pasting a screenshot of an event invite (e.g. a meeting confirmation email) produces a correct single-candidate confirm list.
+- Uploading a photo of a multi-date flyer (e.g. a sports schedule) produces a multi-candidate confirm list, and accepting it creates all selected events in one action.
+- `llm_calls` has rows for both fast-path and LLM-fallback calls across all input types, so we can tell after a few days of use what fraction of inputs need the LLM, and how much volume is text vs. image/PDF.
 
 ## Open questions (revisit with real usage data, not now)
 
 - Exact default event duration when none is stated (currently 30 min — arbitrary).
 - How strict the fast-path regex should be before falling back to Claude — needs telemetry to tune, not a guess.
 - Rate limiting / abuse prevention on `/api/parse` once it's exposed beyond just the extension's own users.
+- Max image/PDF size and page count `/api/parse` accepts, and what the popup shows while a larger file is processing (image/PDF calls will be slower than text).
 - Confirm-before-write is universal in v1; the `confirm_before_write` settings flag exists in the schema but has no UI to change it yet — revisit once parse accuracy is measured.
