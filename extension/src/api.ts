@@ -1,6 +1,6 @@
 import { getConfig } from "./config";
 import { getSessionToken } from "./auth";
-import type { EventCandidate, ParseResponse, CreateEventsResponse } from "./types";
+import type { EventCandidate, ParseResponse, CreateEventsResponse, CalendarEvent } from "./types";
 
 class ApiError extends Error {
   constructor(
@@ -50,6 +50,15 @@ export async function parseFile(file: File): Promise<ParseResponse> {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.error ?? "Could not parse that file", res.status);
   }
+  return res.json();
+}
+
+// Used to flag scheduling conflicts in the confirm list before the user
+// commits — a read, so it's fine to call speculatively and ignore failures.
+export async function getEvents(start: string, end: string): Promise<{ events: CalendarEvent[] }> {
+  const params = new URLSearchParams({ start, end });
+  const res = await apiFetch(`/api/events?${params}`, { method: "GET" });
+  if (!res.ok) throw new ApiError("Could not check for conflicts", res.status);
   return res.json();
 }
 

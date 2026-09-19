@@ -1,5 +1,6 @@
 import { connectGoogle } from "../auth";
 import { parseText } from "../api";
+import { annotateConflicts } from "../conflicts";
 
 const CONTEXT_MENU_ID = "kinroo-add-selection";
 
@@ -55,12 +56,10 @@ chrome.contextMenus.onClicked.addListener((info) => {
         });
         setBadge("✓", "#1E8E3E");
       } else if (result.intent === "create" && result.candidates.length > 0) {
-        await chrome.storage.local.set({
-          draft: {
-            kind: "confirming",
-            candidates: result.candidates.map((c) => ({ ...c, selected: true })),
-          },
-        });
+        const candidates = await annotateConflicts(
+          result.candidates.map((c) => ({ ...c, selected: true })),
+        );
+        await chrome.storage.local.set({ draft: { kind: "confirming", candidates } });
         setBadge("✓", "#1E8E3E");
       } else {
         // Nothing recognizable in the selection — no popup is open to show

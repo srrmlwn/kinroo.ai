@@ -6,6 +6,14 @@ export interface EventCandidate {
   location?: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  location?: string;
+}
+
 export interface ParseResponse {
   intent: "create" | "query" | "unknown";
   candidates: EventCandidate[];

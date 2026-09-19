@@ -1,9 +1,11 @@
 import { clearSession, getSessionToken } from "../auth";
 import { getMe, parseText, parseFile, createEvents, ApiError } from "../api";
-import type { EventCandidate } from "../types";
+import { annotateConflicts } from "../conflicts";
+import type { EventCandidate, CalendarEvent } from "../types";
 
 interface EditableCandidate extends EventCandidate {
   selected: boolean;
+  conflicts?: CalendarEvent[];
 }
 
 type View =
@@ -180,11 +182,10 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
       setState({ kind: "answer", email: current.email, text: result.answer ?? "Nothing found." });
     } else if (result.intent === "create" && result.candidates.length > 0) {
       inputText = "";
-      setState({
-        kind: "confirming",
-        email: current.email,
-        candidates: result.candidates.map((c) => ({ ...c, selected: true })),
-      });
+      const candidates = await annotateConflicts(
+        result.candidates.map((c) => ({ ...c, selected: true })),
+      );
+      setState({ kind: "confirming", email: current.email, candidates });
     } else {
       setState({
         ...current,
@@ -205,6 +206,15 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
       notice: err instanceof Error ? err.message : "Something went wrong",
     });
   }
+}
+
+// Fires after a start/end edit; the row already re-rendered without a
+// conflict badge, this fills it back in once the check comes back. Guards
+// on view kind since the popup may have moved on (confirm/cancel) by then.
+function recheckConflicts(candidates: EditableCandidate[]): void {
+  annotateConflicts(candidates).then((annotated) => {
+    if (state.kind === "confirming") setState({ ...state, candidates: annotated });
+  });
 }
 
 async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
@@ -280,6 +290,11 @@ function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
             <span>–</span>
             <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" />
           </div>
+          ${
+            c.conflicts?.length
+              ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(c.conflicts[0].title)}"${c.conflicts.length > 1 ? ` +${c.conflicts.length - 1} more` : ""}</p>`
+              : ""
+          }
         </div>
       </div>`,
     )
@@ -401,18 +416,20 @@ function attachHandlers() {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
         const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, start: fromDatetimeLocalValue(el.value) } : c,
+          idx === i ? { ...c, start: fromDatetimeLocalValue(el.value), conflicts: undefined } : c,
         );
         setState({ ...current, candidates });
+        recheckConflicts(candidates);
       });
     });
     document.querySelectorAll<HTMLInputElement>(".cand-end").forEach((el) => {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
         const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, end: fromDatetimeLocalValue(el.value) } : c,
+          idx === i ? { ...c, end: fromDatetimeLocalValue(el.value), conflicts: undefined } : c,
         );
         setState({ ...current, candidates });
+        recheckConflicts(candidates);
       });
     });
   }
