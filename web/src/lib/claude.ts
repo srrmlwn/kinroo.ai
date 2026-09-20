@@ -67,12 +67,12 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       search_start: {
         type: "string",
         description:
-          "Only when intent is 'update' or 'delete': ISO 8601 start of the date range to search for the target event, inferred from context (e.g. 'tomorrow's dentist' -> tomorrow). Omit otherwise.",
+          "Only when intent is 'update' or 'delete', AND the text gives a date/time hint for the event you're searching for (e.g. 'tomorrow's dentist', 'my Friday meeting'): ISO 8601 datetime with UTC offset marking the start of the range to search. If the text gives no date/time hint at all (e.g. 'cancel my dentist appointment'), omit this field entirely — do not guess a narrow range, the backend searches broadly by default when it's absent.",
       },
       search_end: {
         type: "string",
         description:
-          "Only when intent is 'update' or 'delete': ISO 8601 end of the search range. Omit otherwise.",
+          "Only when intent is 'update' or 'delete' and search_start is set: ISO 8601 datetime with UTC offset marking the end of the search range. Omit whenever search_start is omitted.",
       },
       changes: {
         type: "object",
@@ -134,8 +134,8 @@ export async function extractWithClaude(
       ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
       : [
           `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon") rather than a request to add something — in that case leave candidates empty and set query_start/query_end to the date range the question refers to.`,
-          `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, give a search date range in search_start/search_end, and put only the fields that should change in changes.`,
-          `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query and a search_start/search_end range the same way as for "update".`,
+          `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, and put only the fields that should change in changes. Only set search_start/search_end if the text itself gives a date/time hint for the event you're searching for ("tomorrow's dentist", "my Friday meeting") — if it gives none ("cancel my dentist appointment"), omit both rather than guessing a narrow range; the backend searches broadly by default when they're absent.`,
+          `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
         ].join(" "),
     `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body.`,

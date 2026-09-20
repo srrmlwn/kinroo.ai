@@ -34,7 +34,13 @@ export async function annotateConflicts(items: EditableAction[]): Promise<Editab
       });
       return { ...item, conflicts: conflicts.length > 0 ? conflicts : undefined };
     });
-  } catch {
+  } catch (err) {
+    // Never block confirming on this — but a silent catch here is
+    // indistinguishable from "no conflicts found," which makes a real
+    // failure (expired session, a bad calendar ID, a network blip)
+    // invisible. Logging costs nothing and makes that failure mode
+    // debuggable from the extension's own console.
+    console.error("[conflicts] check failed, showing no warnings", err);
     return items;
   }
 }
