@@ -121,11 +121,15 @@ describe("fastPathExtractCreate", () => {
 });
 
 describe("fastPathQueryRange", () => {
-  it("resolves a bare weekday to that whole day", () => {
+  it("resolves a bare weekday to that whole day in the given timezone, not the test runner's", () => {
     const range = fastPathQueryRange("Saturday", REF, TZ);
     expect(range).not.toBeNull();
-    expect(range?.start.getHours()).toBe(0);
-    expect(range?.end.getHours()).toBe(23);
+    // Midnight-to-end-of-day Saturday 2026-09-19 in America/Los_Angeles
+    // (PDT, UTC-7) as UTC instants — asserted directly rather than via
+    // .getHours(), which reads in the *test runner's* local timezone and
+    // would pass or fail depending on where the suite happens to run.
+    expect(range?.start.toISOString()).toBe("2026-09-19T07:00:00.000Z");
+    expect(range?.end.toISOString()).toBe("2026-09-20T06:59:59.999Z");
   });
 
   it("resolves a specific time to a narrow window, not the whole day", () => {
