@@ -36,10 +36,10 @@ function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 128 128" aria-hidden="true">
       <rect width="128" height="128" rx="28" fill="#1a73e8" />
-      <rect x="33" y="24" width="8" height="16" rx="4" fill="#ffffff" />
-      <rect x="67" y="24" width="8" height="16" rx="4" fill="#ffffff" />
-      <rect x="20" y="38" width="68" height="62" rx="10" fill="#ffffff" />
-      <polygon points="102,12 106,24 118,28 106,32 102,44 98,32 86,28 98,24" fill="#ffffff" />
+      <rect x="43" y="19" width="8" height="16" rx="4" fill="#ffffff" />
+      <rect x="77" y="19" width="8" height="16" rx="4" fill="#ffffff" />
+      <rect x="30" y="33" width="68" height="62" rx="10" fill="#ffffff" />
+      <polygon points="99,17 102,25 110,28 102,31 99,39 96,31 88,28 96,25" fill="#ffffff" />
     </svg>
   );
 }
