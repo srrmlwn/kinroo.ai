@@ -6,6 +6,7 @@ import {
   boolean,
   numeric,
   timestamp,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -41,6 +42,41 @@ export const settings = pgTable("settings", {
   // adding that UI later is additive, not a migration.
   confirmBeforeWrite: boolean("confirm_before_write").notNull().default(true),
   defaultCalendarId: text("default_calendar_id").notNull().default("primary"),
+});
+
+// address -> user_id lookup, kept separate from `users` per SPEC.md's
+// family-readiness notes so multiple addresses (and later, multiple people)
+// can eventually resolve to a calendar's user without restructuring `users`.
+// Seeded from the account's own Google email at OAuth time; nothing writes
+// to it beyond that in v1.
+export const emailIdentities = pgTable("email_identities", {
+  address: text("address").primaryKey(), // lowercased
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// A create/update/delete parsed from an inbound email, held for the
+// reply-to-confirm flow (lib/email.ts, api/email/inbound) rather than
+// written immediately — confirm-before-write is a hard rule with no popup
+// UI available over email. `action` is an EventAction (see
+// google-calendar.ts); stored as jsonb since it's a small write-once queue,
+// not data anything else queries by field.
+export const pendingEmailActions = pgTable("pending_email_actions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  action: jsonb("action").notNull(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'confirmed' | 'canceled' | 'expired'
+  fromAddress: text("from_address").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
 export const llmCalls = pgTable("llm_calls", {

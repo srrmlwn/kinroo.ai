@@ -1,6 +1,4 @@
-import { eq } from "drizzle-orm";
-import { db } from "./db";
-import { settings as settingsTable } from "./db/schema";
+import { getUserSettings } from "./user-settings";
 import {
   looksLikeQuery,
   looksLikeRecurring,
@@ -25,19 +23,6 @@ export interface ParseOutcome {
   answer?: string;
   usedLlm: boolean;
   inputType: "text" | "image" | "pdf";
-}
-
-async function getUserSettings(userId: string) {
-  const [row] = await db
-    .select()
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-  return {
-    timezone: row?.timezone ?? "UTC",
-    defaultEventDurationMin: row?.defaultEventDurationMin ?? 30,
-    defaultCalendarId: row?.defaultCalendarId ?? "primary",
-  };
 }
 
 async function answerQuery(

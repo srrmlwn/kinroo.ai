@@ -173,6 +173,20 @@ export async function deleteEvent(
   }
 }
 
+// Shared create/update/delete dispatch — used by the extension's confirm
+// list (api/events/route.ts) and by the email reply-to-confirm flow
+// (api/email/inbound/route.ts), so both channels write through the same
+// code path once something is confirmed.
+export async function applyEventAction(
+  userId: string,
+  calendarId: string,
+  action: EventAction,
+): Promise<CalendarEvent | void> {
+  if (action.type === "create") return insertEvent(userId, calendarId, action.candidate);
+  if (action.type === "update") return updateEvent(userId, calendarId, action.eventId, action.candidate);
+  return deleteEvent(userId, calendarId, action.eventId);
+}
+
 export async function listEvents(
   userId: string,
   calendarId: string,

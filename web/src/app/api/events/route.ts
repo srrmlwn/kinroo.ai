@@ -1,23 +1,6 @@
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { settings } from "@/lib/db/schema";
 import { requireUser } from "@/lib/require-user";
-import { insertEvent, updateEvent, deleteEvent, listEvents, type EventAction } from "@/lib/google-calendar";
-
-async function getCalendarId(userId: string): Promise<string> {
-  const [row] = await db
-    .select({ defaultCalendarId: settings.defaultCalendarId })
-    .from(settings)
-    .where(eq(settings.userId, userId))
-    .limit(1);
-  return row?.defaultCalendarId ?? "primary";
-}
-
-function applyAction(userId: string, calendarId: string, action: EventAction) {
-  if (action.type === "create") return insertEvent(userId, calendarId, action.candidate);
-  if (action.type === "update") return updateEvent(userId, calendarId, action.eventId, action.candidate);
-  return deleteEvent(userId, calendarId, action.eventId);
-}
+import { getUserSettings } from "@/lib/user-settings";
+import { applyEventAction, listEvents, type EventAction } from "@/lib/google-calendar";
 
 // Applies one or more create/update/delete actions in a single request —
 // the array shape lets a multi-candidate flyer, or several ambiguous
@@ -33,10 +16,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "actions array is required" }, { status: 400 });
   }
 
-  const calendarId = await getCalendarId(auth.userId);
+  const { defaultCalendarId } = await getUserSettings(auth.userId);
 
   const results = await Promise.allSettled(
-    actions.map((action) => applyAction(auth.userId, calendarId, action)),
+    actions.map((action) => applyEventAction(auth.userId, defaultCalendarId, action)),
   );
 
   const events = results.map((result, i) =>
@@ -60,7 +43,7 @@ export async function GET(request: Request) {
     return Response.json({ error: "start and end query params are required" }, { status: 400 });
   }
 
-  const calendarId = await getCalendarId(auth.userId);
-  const events = await listEvents(auth.userId, calendarId, start, end);
+  const { defaultCalendarId } = await getUserSettings(auth.userId);
+  const events = await listEvents(auth.userId, defaultCalendarId, start, end);
   return Response.json({ events });
 }
