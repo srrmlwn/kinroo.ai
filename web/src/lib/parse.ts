@@ -42,6 +42,23 @@ async function answerQuery(
 // thing" without a date, narrow enough to keep the candidate list small.
 const DEFAULT_SEARCH_WINDOW_MS = { before: 24 * 60 * 60_000, after: 60 * 24 * 60 * 60_000 };
 
+// Google's events.list rejects timeMin/timeMax that aren't a full RFC3339
+// datetime with an offset — a bare date ("2026-09-21") is valid ISO 8601
+// but not accepted, and would otherwise take the whole request down with
+// it. Guards the range Claude returns before it ever reaches that call;
+// anything that doesn't match falls back to the wide default window rather
+// than surfacing as a hard failure.
+export function isFullIsoDatetime(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(value);
+}
+
+function validRangeOrUndefined(
+  range: { start: string; end: string } | undefined,
+): { start: string; end: string } | undefined {
+  if (!range) return undefined;
+  return isFullIsoDatetime(range.start) && isFullIsoDatetime(range.end) ? range : undefined;
+}
+
 async function findEventActions(
   userId: string,
   calendarId: string,
@@ -52,10 +69,11 @@ async function findEventActions(
   changes: Partial<EventCandidate> | undefined,
   referenceDate: Date,
 ): Promise<EventAction[]> {
+  const validRange = validRangeOrUndefined(searchRange);
   const searchStart =
-    searchRange?.start ?? new Date(referenceDate.getTime() - DEFAULT_SEARCH_WINDOW_MS.before).toISOString();
+    validRange?.start ?? new Date(referenceDate.getTime() - DEFAULT_SEARCH_WINDOW_MS.before).toISOString();
   const searchEnd =
-    searchRange?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
+    validRange?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
 
   const events = await listEvents(userId, calendarId, searchStart, searchEnd);
   const matches = findMatchingEvents(events, searchQuery);
@@ -193,12 +211,13 @@ export async function parseInput(
   let answer: string | undefined;
   let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
 
-  if (result.intent === "query" && result.queryRange) {
+  const validQueryRange = validRangeOrUndefined(result.queryRange);
+  if (result.intent === "query" && validQueryRange) {
     answer = await answerQuery(
       userId,
       userSettings.defaultCalendarId,
       userSettings.timezone,
-      result.queryRange,
+      validQueryRange,
     );
   } else if (result.intent === "update" || result.intent === "delete") {
     actions = await findEventActions(
