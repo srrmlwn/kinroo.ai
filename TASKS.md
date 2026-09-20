@@ -1,6 +1,6 @@
 # v1 build tasks
 
-Tracks implementation against `SPEC.md`. All code-side tasks are done, including the follow-on features below. The last mile is manual verification with real credentials (`SETUP.md`) — done once, locally; not yet deployed anywhere.
+Tracks implementation against `SPEC.md`. All code-side tasks are done, including the follow-on features below. It's been manually verified once locally with real credentials (`SETUP.md`), and a Vercel project + domain now exist — but production env vars aren't set yet, so nothing has actually run at `https://kinroo.ai` end-to-end.
 
 ## Backend (`web/`)
 - [x] Drizzle schema + config: `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`
@@ -21,15 +21,18 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] `llm_calls` telemetry logging (fire-and-forget) wired into the parse path
 
 ## Extension (`extension/`)
-- [x] Manifest: `identity`/`contextMenus`/`scripting`/`activeTab` permissions, host permissions, icons (16/32/48/128)
+- [x] Manifest: `identity`/`contextMenus`/`scripting`/`activeTab`/`sidePanel` permissions, host permissions, icons (16/32/48/128)
 - [x] Auth: "Connect Google Calendar" via `chrome.identity.launchWebAuthFlow`, store session token, scopes incl. `calendar.calendarlist.readonly`
-- [x] Popup: compose input (text) + file input/paste (image/pdf)
-- [x] Popup: confirm list UI (editable rows, accept/deselect, bulk write) covering create/update/delete rows
-- [x] Popup: query answer display
-- [x] Popup: "Detect events on this page" button — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior)
-- [x] Popup: conflict detection — flags overlapping existing events on create rows before confirm, rechecked on edit
-- [x] Popup: connected/disconnected state handling, basic error states
-- [x] Branding: icon (calendar + spark mark), applied across manifest/popup and the web landing page
+- [x] Panel (formerly an action popup, migrated to `chrome.sidePanel` — resizable, survives focus loss/tab switches): compose input (text) + file input/paste/drag-and-drop (image/pdf), auto-growing textarea, Cmd/Ctrl+Enter submit, example prompt chips
+- [x] Panel: confirm list UI (editable rows, accept/deselect, bulk write) covering create/update/delete rows
+- [x] Panel: query answer display
+- [x] Panel: "Detect events on this page" button — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior)
+- [x] Panel: conflict detection — flags overlapping existing events on create rows before confirm, rechecked on edit
+- [x] Panel: connected/disconnected state handling, basic error states
+- [x] Panel: upcoming-events strip (next 5, `GET /api/events`) + "Open Google Calendar" link on the ready view
+- [x] Panel: one-click Undo after a confirm, reusing `applyActions`/`POST /api/events` with the inverse action(s)
+- [x] Panel: default-calendar indicator (`GET /api/settings`), dark mode via `prefers-color-scheme`
+- [x] Branding: icon (calendar + spark mark), applied across manifest/panel and the web landing page
 
 ## Web landing page (`web/`)
 - [x] Redesigned marketing page (`web/src/app/page.tsx`) reflecting the full feature set (compose, ask, edit/cancel, recurring, conflicts, page-detect)
@@ -39,14 +42,17 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] `npm run typecheck` / `npm run build` clean across both workspaces
 - [x] Unit tests for the fast path (chrono-node heuristics, timezone handling), the deterministic query-answer formatter, and the email-inbound pure parsing helpers (`npm run test`)
 - [x] Manual walkthrough with real credentials, local dev only — connect, compose-create, query, edit/cancel, recurring, conflict detection all verified against a real Google account (see `SETUP.md`)
+- [x] Side-panel migration spot-checked headlessly (Chromium `--load-extension`, real manifest/service worker, no console errors; ready/confirm views screenshotted in light and dark mode) — not a substitute for clicking through it in real Chrome, which still needs doing once at a desk
 - [ ] Manual walkthrough of email ingest end-to-end (needs a real domain + public deployment — see `SETUP.md` §10)
-- [ ] Production deployment walkthrough — not yet deployed anywhere (see "Next up" below)
+- [ ] Production deployment walkthrough — CI/CD and the Vercel project exist now (see below); an actual signed-in run against `https://kinroo.ai` hasn't happened yet
 
 ## Explicitly not in this pass
 - Family/multi-account, WhatsApp, proactive notifications, per-occurrence recurring edits — per `SPEC.md`.
 
 ## Next up: deployment
-- [ ] Deploy `web/` to Vercel (no project exists yet as of this writing)
-- [ ] Point `kinroo.ai` at Vercel and reconfigure the extension/OAuth client for the production URL
-- [ ] Move secrets into Vercel's env config
+- [x] Deploy `web/` to Vercel (project `kinroo-ai`, root directory `web`)
+- [x] Point `kinroo.ai` at Vercel (apex + `www`, both verified) — DNS is on Namecheap
+- [x] GitHub Actions CI (typecheck/build/test) on every PR and push to `main`, `enable_pr_auto_merge` used going forward
+- [ ] Add production env vars in the Vercel dashboard (`DATABASE_URL` on a separate prod Neon branch, `GOOGLE_CLIENT_ID`/`SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`)
+- [ ] Branch protection on `main` requiring the CI `build` check (so auto-merge actually gates on green CI instead of merging immediately)
 - [ ] Verify email ingest end-to-end once there's a public HTTPS URL for the SendGrid webhook

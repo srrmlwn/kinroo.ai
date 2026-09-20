@@ -9,14 +9,15 @@ A natural-language interface layer on top of Google Calendar — not a calendar 
 ## v1 scope
 
 **In scope:**
-1. Chrome extension, compose mode — type free text, paste a screenshot, or upload an image/PDF (flyer, invite, itinerary) in the popup; get one or more Google Calendar events. If text is selected on the open page, the compose box prefills from it. A separate "Detect events on this page" button runs the page's full visible text (`document.body.innerText`, truncated) through the same pipeline directly — deliberately not prefilled into the compose box, since dumping a whole page's text into a visible field the user didn't type is noisy and easy to mistake for their own input.
+1. Chrome extension, compose mode — type free text, paste a screenshot, or upload an image/PDF (flyer, invite, itinerary) in the panel; get one or more Google Calendar events. If text is selected on the open page, the compose box prefills from it. A separate "Detect events on this page" button runs the page's full visible text (`document.body.innerText`, truncated) through the same pipeline directly — deliberately not prefilled into the compose box, since dumping a whole page's text into a visible field the user didn't type is noisy and easy to mistake for their own input.
 2. Chrome extension, query mode — ask a natural-language question about the calendar, get an answer.
 3. Chrome extension, edit/cancel mode — "cancel my dentist appointment", "move my 3pm to 4pm" finds the matching existing event(s) by keyword search over a Claude-inferred date window and shows them in the same confirm list, tagged as an update or delete rather than a create.
 4. Recurring events — a create request with repeating phrasing ("every Monday", "weekly for 8 weeks") carries an iCalendar RRULE through to `events.insert`. If the text also names specific occurrences to skip ("every Monday except the 26th"), those become an `EXDATE` line alongside the `RRULE` line.
 5. Conflict detection — the confirm list flags when a create candidate overlaps something already on the calendar, checked against a single `events.list` call over the candidates' combined time range.
 6. Single Google account per user. Confirm-before-write on every create/update/delete, including a bulk confirm list when one input yields multiple candidate events (e.g. a season schedule flyer) or multiple ambiguous matches for an edit/cancel request.
-7. Web settings page (`/settings`) — timezone, default event duration, and calendar are editable outside the extension. The calendar field is a real picker over the user's actual Google calendars (`GET /api/settings/calendars`, filtered to ones they can write to) rather than a raw ID field — this needed a second, read-only OAuth scope (see Auth flow below), so an account connected before that scope existed falls back to a plain text field with a prompt to reconnect. Since there's no hosted web login, the extension's popup mints a short-lived handoff token that the settings page exchanges for a session cookie (`api/auth/handoff`) rather than the app growing a second OAuth flow.
-8. Email ingest (`add@<domain>`) — a SendGrid Inbound Parse webhook runs an emailed request through the same parse pipeline as the extension. Confirm-before-write still applies with no popup available, so email uses reply-to-confirm instead: kinroo replies asking "add this? reply YES/NO," and only writes once that reply comes back. v1 queues one action per inbound email (the best/first match); an email that would produce several ambiguous or multi-candidate results only confirms the first — see `api/email/inbound`.
+7. Web settings page (`/settings`) — timezone, default event duration, and calendar are editable outside the extension. The calendar field is a real picker over the user's actual Google calendars (`GET /api/settings/calendars`, filtered to ones they can write to) rather than a raw ID field — this needed a second, read-only OAuth scope (see Auth flow below), so an account connected before that scope existed falls back to a plain text field with a prompt to reconnect. Since there's no hosted web login, the extension's panel mints a short-lived handoff token that the settings page exchanges for a session cookie (`api/auth/handoff`) rather than the app growing a second OAuth flow.
+8. Email ingest (`add@<domain>`) — a SendGrid Inbound Parse webhook runs an emailed request through the same parse pipeline as the extension. Confirm-before-write still applies with no panel available, so email uses reply-to-confirm instead: kinroo replies asking "add this? reply YES/NO," and only writes once that reply comes back. v1 queues one action per inbound email (the best/first match); an email that would produce several ambiguous or multi-candidate results only confirms the first — see `api/email/inbound`.
+9. Extension UI — the compose/confirm surface is a Chrome **side panel** (`chrome.sidePanel`, opened via the toolbar icon), not the old action popup: it survives ordinary focus loss and tab switches instead of being destroyed, and its width is user-resizable rather than fixed. On top of compose/confirm, the ready view shows the next 5 upcoming events (`GET /api/events`) plus a link to open Google Calendar directly, a one-click **Undo** after a confirm (built by reusing `applyActions`/`POST /api/events` with the inverse of whatever was just applied — a delete for a create, the pre-edit fields for an update, a recreate for a delete), and a small indicator of which calendar (`settings.default_calendar_id`) writes are going to. Colors follow `prefers-color-scheme` for dark mode.
 
 **Explicitly out of scope** (do not build, but see "Family-readiness notes" below for the conventions that keep these open):
 - WhatsApp/SMS — phase 4.
@@ -38,7 +39,7 @@ Competitive research (2026-09-18) found plain-text compose and image/flyer parsi
 
 ```
 Chrome extension (Manifest V3)                    SendGrid Inbound Parse
-  popup — compose box + confirm-preview UI          (add@<domain>, confirm+<id>@<domain>)
+  panel — compose box + confirm-preview UI          (add@<domain>, confirm+<id>@<domain>)
   background service worker — holds session token           │
         │                                                    ▼
         ▼                                          POST /api/email/inbound
@@ -134,7 +135,7 @@ The landing page (`web/`, served at the root route) is marketing-only: no login,
 
 **Implemented.** No hosted login page — the extension drives Google's consent screen directly via `chrome.identity.launchWebAuthFlow`, and the backend does the token exchange.
 
-1. Extension popup, unauthenticated state: "Connect Google Calendar" opens Google's OAuth consent screen via `chrome.identity.launchWebAuthFlow`, with `redirect_uri = chrome.identity.getRedirectURL()` (a `https://<extension-id>.chromiumapp.org/` URL, which must be registered as an authorized redirect URI on the Google Cloud OAuth client — see `SETUP.md`).
+1. Extension panel, unauthenticated state: "Connect Google Calendar" opens Google's OAuth consent screen via `chrome.identity.launchWebAuthFlow`, with `redirect_uri = chrome.identity.getRedirectURL()` (a `https://<extension-id>.chromiumapp.org/` URL, which must be registered as an authorized redirect URI on the Google Cloud OAuth client — see `SETUP.md`).
 2. Scopes requested: `calendar.events` (read/write events), `calendar.calendarlist.readonly` (lets the settings page list the user's calendars for the picker — deliberately not the broader `calendar`/`calendar.calendarlist` scopes, which also grant calendar management), plus `openid email` (needed to identify the user via Google's userinfo endpoint — still narrower than requesting `profile`/full calendar access).
 3. `launchWebAuthFlow` resolves with the redirect URL containing `?code=...`; the extension extracts the code and POSTs `{ code, redirectUri, timezone }` to `POST /api/auth/google/exchange`.
 4. The backend exchanges the code for tokens (client secret never touches the extension), fetches the profile, upserts `users`/`oauth_tokens`/`settings` (seeding `settings.timezone` from the client-supplied `Intl` timezone rather than defaulting blindly to UTC), and returns a session JWT.
@@ -146,15 +147,15 @@ The landing page (`web/`, served at the root route) is marketing-only: no login,
 input (text | image | pdf) ──► intent classification ──► extraction ──► confirm list ──► write/read
 ```
 
-1. **Input** — text typed in the popup (optionally prefilled from a page selection, or via the right-click "Add selection" menu), the page's full text via the explicit "Detect events on this page" button, or an image/PDF pasted (clipboard) or uploaded (file picker): a screenshot of an invite email, a photo of a flyer, an itinerary attachment.
+1. **Input** — text typed in the panel (optionally prefilled from a page selection, or via the right-click "Add selection" menu), the page's full text via the explicit "Detect events on this page" button, or an image/PDF pasted (clipboard) or uploaded (file picker): a screenshot of an invite email, a photo of a flyer, an itinerary attachment.
 2. **Intent classification** — text only: regex/heuristic first pass distinguishes a creation ("X at Y", "schedule...", a weekday/date + time), a question ("do I have", "what's on", "am I free"), or an edit/cancel request ("cancel...", "move...", "reschedule...", "rename..." — anything the modification heuristic catches skips the fast path entirely, since a naive regex parse would misread "move my dentist to 4pm" as a new event). Ambiguous or low-confidence text → one Claude call classifies intent (`create` | `query` | `update` | `delete` | `unknown`) as part of the same request that does extraction/search. Image/PDF input skips straight to extraction — an uploaded file is never a query or an edit request.
 3. **Extraction (create)** — always returns an **array** of 0+ candidate events `{ title, start, end, timezone, location?, recurrence? }`. Plain text almost always yields exactly one candidate; an image of a multi-date flyer can yield many in a single call. A repeating-event phrase ("every Monday", "weekly for 8 weeks") sets `recurrence` to an RRULE (plus an `EXDATE` line if the text names occurrences to skip) and skips the fast path (which has no way to encode one).
    - Fast path (text only, create/query intents only): regex/date-library parsing (e.g. relative dates, "Xam/pm") for common single-event phrasings.
    - Fallback (text when the fast path can't confidently fill required fields, or the text looks like an edit/cancel/recurring request; **always** for image/PDF): one Claude call with the raw text or an image/PDF content block, using a structured tool-call schema.
    - Any candidate missing an explicit duration → default from `settings.default_event_duration_min`.
-4. **Search (update/delete)** — for an edit/cancel request, Claude returns a short search phrase plus an inferred date window instead of a candidate; the backend runs `events.list` over that window and keyword-matches the phrase against event titles (`lib/match-events.ts`) to find the event(s) being referred to. No match → the popup reports it couldn't find one rather than falling back to guessing.
-5. **Confirm** — popup shows every result as a row in one list — a create (editable title/start/end, tagged with any recurrence/conflict note), an update (original event shown for reference, editable new title/start/end), or a delete (original event shown, cancel-only, no editable fields) — whether there's 1 row or 20. User can accept all, edit any editable row inline, or deselect individual rows before writing. A single match defaults selected; multiple ambiguous update/delete matches default unselected so the user picks the right one. Non-negotiable regardless of parser confidence.
-   - **Conflict detection**: for create rows, the popup fetches existing events across the rows' combined time range in one `events.list` call and flags any overlap inline, rechecked whenever a row's start/end is hand-edited.
+4. **Search (update/delete)** — for an edit/cancel request, Claude returns a short search phrase plus an inferred date window instead of a candidate; the backend runs `events.list` over that window and keyword-matches the phrase against event titles (`lib/match-events.ts`) to find the event(s) being referred to. No match → the panel reports it couldn't find one rather than falling back to guessing.
+5. **Confirm** — panel shows every result as a row in one list — a create (editable title/start/end, tagged with any recurrence/conflict note), an update (original event shown for reference, editable new title/start/end), or a delete (original event shown, cancel-only, no editable fields) — whether there's 1 row or 20. User can accept all, edit any editable row inline, or deselect individual rows before writing. A single match defaults selected; multiple ambiguous update/delete matches default unselected so the user picks the right one. Non-negotiable regardless of parser confidence.
+   - **Conflict detection**: for create rows, the panel fetches existing events across the rows' combined time range in one `events.list` call and flags any overlap inline, rechecked whenever a row's start/end is hand-edited.
 6. **Write** — on confirm, each selected row applies as `events.insert` (create), `events.patch` (update), or `events.delete` (delete) against `settings.default_calendar_id`, returned as a per-row ok/error array (partial failure is visible, not all-or-nothing).
 7. **Query** — text only. Parse a date/range from the question, `events.list` against the same window, then format a short natural-language answer. LLM involvement here is about phrasing the answer, not about writing anything — no confirmation step needed since nothing is mutated.
 
@@ -166,10 +167,10 @@ All implemented as of this revision:
 
 - `GET /api/health` — liveness check.
 - `POST /api/auth/google/exchange` — OAuth code → session JWT (see Auth flow above).
-- `GET /api/auth/me` — resolves the bearer session token to `{ email, name }`; lets the popup confirm connected state.
+- `GET /api/auth/me` — resolves the bearer session token to `{ email, name }`; lets the panel confirm connected state.
 - `POST /api/parse` — text (JSON `{ text }`) or an image/PDF (`multipart/form-data`, field `file`) in; `{ intent, actions, answer?, usedLLM, inputType }` out, where `actions` is an array of `{ type: "create", candidate }` / `{ type: "update", eventId, original, candidate }` / `{ type: "delete", eventId, original }`. For `intent: "query"`, the backend already ran the Calendar read and `answer` is ready to display — no second request needed. Does not write anything.
 - `POST /api/events` — `{ actions: EventAction[] }` in; applies each (`events.insert` / `events.patch` / `events.delete`) and returns a per-action ok/error array (partial failure is visible, not all-or-nothing).
-- `GET /api/events?start=&end=` — range read, used internally by the query and update/delete search paths, and by the popup's conflict check.
+- `GET /api/events?start=&end=` — range read, used internally by the query and update/delete search paths, and by the panel's conflict check.
 - `POST /api/auth/handoff` — bearer-authed; mints a short-lived, purpose-scoped JWT for the extension's "Settings" link to hand off to the web app.
 - `GET /api/auth/handoff?token=` — verifies that token, sets an HttpOnly `session` cookie, and redirects to `/settings`.
 - `GET/PATCH /api/settings` — reads/updates `timezone`, `default_event_duration_min`, `default_calendar_id` for the authenticated user (cookie or bearer). `confirm_before_write` is read-only.
@@ -180,7 +181,7 @@ All implemented as of this revision:
 
 ## Acceptance criteria for "v1 done"
 
-- A user can install the unpacked extension, click "Connect Google Calendar," complete OAuth, and see a connected state in the popup.
+- A user can install the unpacked extension, click "Connect Google Calendar," complete OAuth, and see a connected state in the panel.
 - Typing "doctor's appointment at 9am tomorrow" shows a confirm preview with the correct date/time, and clicking confirm creates a real event on that Google account's primary calendar.
 - Typing "do I have plans Saturday?" returns an answer that matches what's actually on the calendar.
 - A wrong parse can be corrected before confirming (edit title/time in the preview) rather than only accept/reject.
@@ -189,7 +190,7 @@ All implemented as of this revision:
 - Typing "cancel my dentist appointment" finds the real event on the calendar and shows a cancel-confirmation row rather than creating a new "cancel my dentist appointment" event.
 - Typing "team standup every Monday at 9am for 10 weeks" creates a single recurring series, not 10 separate events or one non-repeating event.
 - Creating an event that overlaps something already on the calendar shows a conflict warning in the confirm list before the write happens.
-- Clicking "Settings" in the popup opens `/settings` already signed in (no separate login), and changing the timezone there is reflected the next time the extension resolves a relative date.
+- Clicking "Settings" in the panel opens `/settings` already signed in (no separate login), and changing the timezone there is reflected the next time the extension resolves a relative date.
 - Emailing `add@<domain>` a plain-English event gets a reply asking to confirm; replying "yes" creates the real event, and nothing is written if there's no reply or the reply is "no" (email confirm-before-write, exercised as unit tests on the parsing helpers since the full loop needs a live domain — see SETUP.md §10).
 - `llm_calls` has rows for both fast-path and LLM-fallback calls across all input types, so we can tell after a few days of use what fraction of inputs need the LLM, and how much volume is text vs. image/PDF.
 
@@ -198,5 +199,5 @@ All implemented as of this revision:
 - Exact default event duration when none is stated (currently 30 min — arbitrary).
 - How strict the fast-path regex should be before falling back to Claude — needs telemetry to tune, not a guess.
 - Rate limiting / abuse prevention on `/api/parse` once it's exposed beyond just the extension's own users.
-- Max image/PDF size and page count `/api/parse` accepts, and what the popup shows while a larger file is processing (image/PDF calls will be slower than text).
+- Max image/PDF size and page count `/api/parse` accepts, and what the panel shows while a larger file is processing (image/PDF calls will be slower than text).
 - Confirm-before-write is universal in v1; the `confirm_before_write` settings flag exists in the schema but has no UI to change it yet — revisit once parse accuracy is measured.

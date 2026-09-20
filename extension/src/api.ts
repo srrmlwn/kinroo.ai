@@ -62,7 +62,14 @@ export async function getEvents(start: string, end: string): Promise<{ events: C
   return res.json();
 }
 
-// Used by the popup's "Settings" link: the web app has no login of its own,
+// Used by the panel's default-calendar indicator — best-effort, read-only.
+export async function getSettings(): Promise<{ defaultCalendarId: string }> {
+  const res = await apiFetch("/api/settings", { method: "GET" });
+  if (!res.ok) throw new ApiError("Could not load settings", res.status);
+  return res.json();
+}
+
+// Used by the panel's "Settings" link: the web app has no login of its own,
 // so this mints a short-lived token the extension hands off in a URL, which
 // the backend exchanges for a browser session cookie (see
 // api/auth/handoff/route.ts).

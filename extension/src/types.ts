@@ -31,7 +31,7 @@ export interface ParseResponse {
   inputType: "text" | "image" | "pdf";
 }
 
-// A confirm-list row as the popup/background flows build and edit it —
+// A confirm-list row as the panel/background flows build and edit it —
 // the parsed action plus UI-only state (whether it's checked, and any
 // scheduling conflicts found for a "create" row).
 export interface EditableAction {

@@ -20,7 +20,7 @@ export default async function SettingsPage() {
   const userId = token ? await verifySessionToken(token) : null;
 
   if (!userId) {
-    return <Message text='Open this page from the "Settings" link in the kinroo.ai extension popup to sign in.' />;
+    return <Message text='Open this page from the "Settings" link in the kinroo.ai extension panel to sign in.' />;
   }
 
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
