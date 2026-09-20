@@ -32,7 +32,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         items: {
           type: "object",
           properties: {
-            title: { type: "string" },
+            title: {
+              type: "string",
+              description:
+                "The actual name of the event or activity (e.g. a class, appointment, or meeting name) — never a field label from the source text like 'Meets' or 'Activity'.",
+            },
             start: {
               type: "string",
               description: "ISO 8601 datetime with UTC offset",
@@ -46,6 +50,12 @@ const EXTRACT_TOOL: Anthropic.Tool = {
               type: "string",
               description:
                 "An iCalendar RRULE body (RFC 5545) if this event repeats, e.g. 'FREQ=WEEKLY;BYDAY=MO;COUNT=10' or 'FREQ=DAILY;UNTIL=20261231T000000Z'. Omit the 'RRULE:' prefix. Omit this field entirely for a one-off event. If the user states no end ('every Monday'), default to COUNT=52.",
+            },
+            exception_dates: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Only alongside recurrence: ISO 8601 datetimes (with UTC offset) for individual occurrences the text explicitly excludes (e.g. 'except Thursday, November 26, 2026'). Use the same time-of-day as `start`. Omit if the text names no exceptions.",
             },
           },
           required: ["title", "start", "end"],
@@ -89,6 +99,13 @@ const EXTRACT_TOOL: Anthropic.Tool = {
     required: ["intent", "candidates"],
   },
 };
+
+// RFC 5545 wants EXDATE values in the same basic UTC format Claude already
+// produces for RRULE's UNTIL (e.g. "20261231T000000Z") — this converts one
+// of the ISO 8601 datetimes Claude returns for exception_dates into that form.
+export function toIcalUtc(iso: string): string {
+  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
 
 export type ClaudeInput =
   | { kind: "text"; text: string }
@@ -138,7 +155,7 @@ export async function extractWithClaude(
           `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
         ].join(" "),
-    `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body.`,
+    `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body. If the text also names specific dates to skip within that recurrence ("except the following dates: ..."), list each one in exception_dates.`,
   ].join(" ");
 
   const content: Anthropic.ContentBlockParam[] =
@@ -180,6 +197,7 @@ export async function extractWithClaude(
       end: string;
       location?: string;
       recurrence?: string;
+      exception_dates?: string[];
     }>;
     query_start?: string;
     query_end?: string;
@@ -197,7 +215,14 @@ export async function extractWithClaude(
       end: c.end,
       location: c.location,
       timezone: opts.timezone,
-      recurrence: c.recurrence ? [`RRULE:${c.recurrence}`] : undefined,
+      recurrence: c.recurrence
+        ? [
+            `RRULE:${c.recurrence}`,
+            ...(c.exception_dates?.length
+              ? [`EXDATE:${c.exception_dates.map(toIcalUtc).join(",")}`]
+              : []),
+          ]
+        : undefined,
     })),
     queryRange:
       parsed.query_start && parsed.query_end

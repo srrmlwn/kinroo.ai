@@ -9,7 +9,7 @@ export interface EventCandidate {
   end: string; // ISO 8601 datetime
   timezone?: string;
   location?: string;
-  // iCalendar RRULE lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10"].
+  // iCalendar lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10", "EXDATE:20261126T180000Z"].
   // Passed straight through to the Calendar API's `recurrence` field.
   recurrence?: string[];
 }

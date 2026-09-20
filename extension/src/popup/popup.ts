@@ -344,10 +344,23 @@ const RECURRENCE_DAY_LABEL: Record<string, string> = {
   SU: "Sun",
 };
 
-// Turns an RRULE into a short human-readable summary for the confirm list —
-// not a full RFC 5545 renderer, just enough for the common cases the
-// extraction schema actually produces (FREQ/INTERVAL/BYDAY/COUNT/UNTIL).
-function formatRecurrence(rule: string): string {
+// Turns an iCalendar UTC basic-format datetime ("20261126T180000Z") into a
+// short local-date label ("Nov 26") — same rendering convention as
+// formatEventTime, which also displays in the browser's local timezone.
+function formatIcalDateShort(value: string): string {
+  const iso = value.replace(
+    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/,
+    "$1-$2-$3T$4:$5:$6Z",
+  );
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Turns the recurrence lines (RFC 5545) into a short human-readable summary
+// for the confirm list — not a full renderer, just enough for the common
+// cases the extraction schema actually produces (an RRULE with
+// FREQ/INTERVAL/BYDAY/COUNT/UNTIL, plus an optional EXDATE line).
+function formatRecurrence(lines: string[]): string {
+  const rule = lines[0];
   const parts = Object.fromEntries(
     rule
       .replace(/^RRULE:/, "")
@@ -368,6 +381,15 @@ function formatRecurrence(rule: string): string {
   else if (parts.UNTIL) {
     label += ` until ${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}`;
   }
+
+  const exdateLine = lines.find((line) => line.startsWith("EXDATE"));
+  if (exdateLine) {
+    const dates = exdateLine
+      .replace(/^EXDATE(;[^:]*)?:/, "")
+      .split(",")
+      .map(formatIcalDateShort);
+    label += `, except ${dates.join(", ")}`;
+  }
   return label;
 }
 
@@ -379,7 +401,7 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
       : "";
   const recurrenceNote =
     action.type === "create" && c.recurrence?.length
-      ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence[0]))}</p>`
+      ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence))}</p>`
       : "";
   return `
     ${originalNote}
