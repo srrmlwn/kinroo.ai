@@ -23,14 +23,6 @@ export async function annotateConflicts(items: EditableAction[]): Promise<Editab
 
   try {
     const { events } = await getEvents(rangeStart, rangeEnd);
-    // Temporary, load-bearing for debugging a live report of missed
-    // conflicts: shows exactly what was queried and what came back, so a
-    // miss can be told apart from "genuinely nothing there" without
-    // guessing. Safe to remove once that's resolved.
-    console.log(
-      `[conflicts] queried ${rangeStart} – ${rangeEnd}, got ${events.length} event(s):`,
-      events.map((e) => ({ title: e.title, start: e.start, end: e.end })),
-    );
     return items.map((item) => {
       if (item.action.type !== "create") return item;
       const itemStart = new Date(item.action.candidate.start).getTime();
