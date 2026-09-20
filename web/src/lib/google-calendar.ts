@@ -31,6 +31,18 @@ export type EventAction =
   | { type: "update"; eventId: string; original: CalendarEvent; candidate: EventCandidate }
   | { type: "delete"; eventId: string; original: CalendarEvent };
 
+// Distinguishes "the stored token doesn't have this scope yet" (403) from
+// any other Calendar API failure, so callers (api/settings/calendars) can
+// tell an existing user to reconnect rather than showing a generic error.
+export class CalendarApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
 interface GoogleEventResource {
   id: string;
   summary?: string;
@@ -223,4 +235,31 @@ export async function listEvents(
     end: item.end.dateTime ?? item.end.date ?? "",
     location: item.location,
   }));
+}
+
+export interface CalendarListEntry {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+// Requires the calendar.calendarlist.readonly scope, which only accounts
+// that reconnected after it was added will have — see api/settings/calendars
+// for the fallback when an older token doesn't have it yet.
+export async function listCalendars(userId: string): Promise<CalendarListEntry[]> {
+  const accessToken = await getAccessToken(userId);
+  const res = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new CalendarApiError(`Calendar list-of-calendars failed: ${res.status} ${await res.text()}`, res.status);
+  }
+  const data = (await res.json()) as {
+    items: Array<{ id: string; summary?: string; primary?: boolean; accessRole: string }>;
+  };
+  // Only calendars kinroo can actually write to are useful as a default —
+  // a read-only subscribed calendar would fail every insert/update/delete.
+  return data.items
+    .filter((item) => item.accessRole === "owner" || item.accessRole === "writer")
+    .map((item) => ({ id: item.id, summary: item.summary ?? item.id, primary: item.primary ?? false }));
 }

@@ -32,6 +32,22 @@ export function parseRecipientAlias(toHeaderValue: string): RecipientAlias | nul
   return null;
 }
 
+// SendGrid forwards whatever "From" a message claims, even one that fails
+// SPF/DKIM — the shared-secret query param on the webhook only proves the
+// request came from SendGrid, not that the claimed sender is real. Without
+// this check, anyone who learns the webhook URL could forge a registered
+// user's address and act as them. SPF is a plain RFC 7208 result string
+// ("pass"/"fail"/"softfail"/"neutral"/"none"/...); SendGrid's `dkim` field
+// is a `{@domain : pass}`-shaped string per signing domain, so a substring
+// check is more robust than assuming one exact format. Either signal
+// passing is enough — matching typical "SPF or DKIM aligned" practice
+// rather than requiring both.
+export function isSenderAuthenticated(spf: string | null, dkim: string | null): boolean {
+  const spfPass = spf?.trim().toLowerCase() === "pass";
+  const dkimPass = dkim?.toLowerCase().includes("pass") ?? false;
+  return spfPass || dkimPass;
+}
+
 const AFFIRMATIVE_PATTERN = /^\s*(y|yes|yep|yeah|confirm|ok|okay|sure|add it|do it)\b/i;
 const NEGATIVE_PATTERN = /^\s*(n|no|nope|cancel|skip|don'?t|stop|nevermind)\b/i;
 

@@ -25,7 +25,7 @@ Don't move or delete the `extension/dist/` folder afterward — Chrome derives t
 2. **APIs & Services → Library** → search "Google Calendar API" → Enable.
 3. **APIs & Services → OAuth consent screen**:
    - User type: External (unless you have a Workspace org to restrict to Internal).
-   - Scopes: add `.../auth/calendar.events`, `.../auth/userinfo.email`, `openid`.
+   - Scopes: add `.../auth/calendar.events`, `.../auth/calendar.calendarlist.readonly` (lets the settings page list your calendars instead of asking for a raw ID), `.../auth/userinfo.email`, `openid`.
    - Test users: add your own Google account email (required while the app is in "Testing" publishing status — it will be, and that's fine for personal/dev use).
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Web application** (not "Chrome extension" — the backend does the token exchange, not `chrome.identity`'s built-in Google flow).
