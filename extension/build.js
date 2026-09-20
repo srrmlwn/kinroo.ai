@@ -19,6 +19,14 @@ fs.copyFileSync(
   path.join(outdir, "popup.css"),
 );
 
+fs.mkdirSync(path.join(outdir, "icons"), { recursive: true });
+for (const size of [16, 32, 48, 128]) {
+  fs.copyFileSync(
+    path.join(__dirname, `icons/icon${size}.png`),
+    path.join(outdir, `icons/icon${size}.png`),
+  );
+}
+
 const configSrc = fs.existsSync(path.join(__dirname, "config.json"))
   ? "config.json"
   : "config.example.json";
