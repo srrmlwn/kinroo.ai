@@ -1,9 +1,16 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { settings as settingsTable } from "./db/schema";
-import { looksLikeQuery, looksLikeRecurring, fastPathExtractCreate, fastPathQueryRange } from "./fast-path";
+import {
+  looksLikeQuery,
+  looksLikeRecurring,
+  looksLikeModification,
+  fastPathExtractCreate,
+  fastPathQueryRange,
+} from "./fast-path";
 import { extractWithClaude, type ClaudeInput } from "./claude";
-import { listEvents, type EventCandidate } from "./google-calendar";
+import { listEvents, type EventCandidate, type EventAction } from "./google-calendar";
+import { findMatchingEvents } from "./match-events";
 import { formatQueryAnswer } from "./format-answer";
 import { logLlmCall } from "./llm-log";
 
@@ -13,8 +20,8 @@ export type ParseInput =
   | { kind: "pdf"; base64: string };
 
 export interface ParseOutcome {
-  intent: "create" | "query" | "unknown";
-  candidates: EventCandidate[];
+  intent: "create" | "query" | "update" | "delete" | "unknown";
+  actions: EventAction[];
   answer?: string;
   usedLlm: boolean;
   inputType: "text" | "image" | "pdf";
@@ -45,6 +52,47 @@ async function answerQuery(
   return formatQueryAnswer(events, timezone);
 }
 
+// Default search window when Claude doesn't infer one (or the fast path
+// never reaches Claude at all) — wide enough to catch "cancel my dentist
+// thing" without a date, narrow enough to keep the candidate list small.
+const DEFAULT_SEARCH_WINDOW_MS = { before: 24 * 60 * 60_000, after: 60 * 24 * 60 * 60_000 };
+
+async function findEventActions(
+  userId: string,
+  calendarId: string,
+  timezone: string,
+  intent: "update" | "delete",
+  searchQuery: string,
+  searchRange: { start: string; end: string } | undefined,
+  changes: Partial<EventCandidate> | undefined,
+  referenceDate: Date,
+): Promise<EventAction[]> {
+  const searchStart =
+    searchRange?.start ?? new Date(referenceDate.getTime() - DEFAULT_SEARCH_WINDOW_MS.before).toISOString();
+  const searchEnd =
+    searchRange?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
+
+  const events = await listEvents(userId, calendarId, searchStart, searchEnd);
+  const matches = findMatchingEvents(events, searchQuery);
+
+  return matches.map((event) =>
+    intent === "delete"
+      ? { type: "delete", eventId: event.id, original: event }
+      : {
+          type: "update",
+          eventId: event.id,
+          original: event,
+          candidate: {
+            title: changes?.title ?? event.title,
+            start: changes?.start ?? event.start,
+            end: changes?.end ?? event.end,
+            timezone,
+            location: changes?.location ?? event.location,
+          },
+        },
+  );
+}
+
 export async function parseInput(
   userId: string,
   input: ParseInput,
@@ -54,7 +102,7 @@ export async function parseInput(
   const referenceDate = new Date();
 
   // Image/PDF always goes straight to Claude — an uploaded file is never a
-  // query, and the fast path can't read pixels.
+  // query or an edit request, and the fast path can't read pixels.
   if (input.kind !== "text") {
     const claudeInput: ClaudeInput =
       input.kind === "image"
@@ -83,7 +131,7 @@ export async function parseInput(
 
     return {
       intent: "create",
-      candidates: result.candidates,
+      actions: result.candidates.map((candidate) => ({ type: "create", candidate })),
       usedLlm: true,
       inputType: input.kind,
     };
@@ -91,6 +139,7 @@ export async function parseInput(
 
   const text = input.text.trim();
   const isLikelyQuery = looksLikeQuery(text);
+  const isLikelyModification = !isLikelyQuery && looksLikeModification(text);
 
   if (isLikelyQuery) {
     const range = fastPathQueryRange(text, referenceDate, userSettings.timezone);
@@ -111,9 +160,9 @@ export async function parseInput(
         candidateCount: 0,
         latencyMs: Date.now() - startedAt,
       });
-      return { intent: "query", candidates: [], answer, usedLlm: false, inputType: "text" };
+      return { intent: "query", actions: [], answer, usedLlm: false, inputType: "text" };
     }
-  } else {
+  } else if (!isLikelyModification) {
     // Recurring phrasing ("every Monday") skips the fast path — it has no
     // way to encode an RRULE — and falls through to the Claude branch below.
     const candidate = looksLikeRecurring(text)
@@ -134,12 +183,18 @@ export async function parseInput(
         candidateCount: 1,
         latencyMs: 0,
       });
-      return { intent: "create", candidates: [candidate], usedLlm: false, inputType: "text" };
+      return {
+        intent: "create",
+        actions: [{ type: "create", candidate }],
+        usedLlm: false,
+        inputType: "text",
+      };
     }
   }
 
-  // Fast path couldn't confidently handle it — fall back to Claude for both
-  // intent classification and extraction in one call.
+  // Fast path couldn't confidently handle it (or the text looks like a
+  // query/edit request the fast path can't do) — fall back to Claude for
+  // full intent classification and extraction in one call.
   const result = await extractWithClaude(
     { kind: "text", text },
     {
@@ -151,12 +206,25 @@ export async function parseInput(
   );
 
   let answer: string | undefined;
+  let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
+
   if (result.intent === "query" && result.queryRange) {
     answer = await answerQuery(
       userId,
       userSettings.defaultCalendarId,
       userSettings.timezone,
       result.queryRange,
+    );
+  } else if (result.intent === "update" || result.intent === "delete") {
+    actions = await findEventActions(
+      userId,
+      userSettings.defaultCalendarId,
+      userSettings.timezone,
+      result.intent,
+      result.searchQuery ?? text,
+      result.searchRange,
+      result.changes,
+      referenceDate,
     );
   }
 
@@ -167,7 +235,7 @@ export async function parseInput(
     usedLlm: true,
     model: result.model,
     intent: result.intent,
-    candidateCount: result.candidates.length,
+    candidateCount: actions.length,
     promptTokens: result.promptTokens,
     completionTokens: result.completionTokens,
     latencyMs: result.latencyMs,
@@ -175,7 +243,7 @@ export async function parseInput(
 
   return {
     intent: result.intent,
-    candidates: result.candidates,
+    actions,
     answer,
     usedLlm: true,
     inputType: "text",

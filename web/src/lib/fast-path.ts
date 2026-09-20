@@ -19,6 +19,18 @@ export function looksLikeRecurring(text: string): boolean {
   return RECURRENCE_PATTERN.test(text);
 }
 
+const MODIFICATION_PATTERN =
+  /\b(cancel|delete|remove|reschedule|postpone|move|push back|rename|change|update)\b/i;
+
+// The create fast path (chrono + leftover-text-as-title) would happily
+// misread "move my dentist appointment to 4pm" as a new "move my dentist
+// appointment" event at 4pm. Text that looks like an edit/cancel request
+// skips both fast paths and always goes to Claude, which classifies the
+// intent as "update"/"delete" and searches existing events instead.
+export function looksLikeModification(text: string): boolean {
+  return MODIFICATION_PATTERN.test(text);
+}
+
 // Regex/date-library fast path for the common "<title> at <time>" phrasing.
 // Returns null when it isn't confident, so the caller falls back to Claude
 // rather than writing a bad title.

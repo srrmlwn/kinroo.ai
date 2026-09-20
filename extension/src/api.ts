@@ -1,6 +1,6 @@
 import { getConfig } from "./config";
 import { getSessionToken } from "./auth";
-import type { EventCandidate, ParseResponse, CreateEventsResponse, CalendarEvent } from "./types";
+import type { ParseResponse, CreateEventsResponse, CalendarEvent, EventAction } from "./types";
 
 class ApiError extends Error {
   constructor(
@@ -62,17 +62,15 @@ export async function getEvents(start: string, end: string): Promise<{ events: C
   return res.json();
 }
 
-export async function createEvents(
-  candidates: EventCandidate[],
-): Promise<CreateEventsResponse> {
+export async function applyActions(actions: EventAction[]): Promise<CreateEventsResponse> {
   const res = await apiFetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ candidates }),
+    body: JSON.stringify({ actions }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.error ?? "Could not create events", res.status);
+    throw new ApiError(body.error ?? "Could not save changes", res.status);
   }
   return res.json();
 }

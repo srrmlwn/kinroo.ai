@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   looksLikeQuery,
   looksLikeRecurring,
+  looksLikeModification,
   fastPathExtractCreate,
   fastPathQueryRange,
 } from "./fast-path";
@@ -45,6 +46,25 @@ describe("looksLikeRecurring", () => {
     "does not treat %j as recurring",
     (text) => {
       expect(looksLikeRecurring(text)).toBe(false);
+    },
+  );
+});
+
+describe("looksLikeModification", () => {
+  it.each([
+    "cancel my dentist appointment tomorrow",
+    "delete the team sync",
+    "move my meeting to 4pm",
+    "reschedule dentist to next Friday",
+    "rename my 3pm call to Budget review",
+  ])("treats %j as a modification", (text) => {
+    expect(looksLikeModification(text)).toBe(true);
+  });
+
+  it.each(["doctor's appointment at 9am tomorrow", "lunch with sam tomorrow 12:30pm"])(
+    "does not treat %j as a modification",
+    (text) => {
+      expect(looksLikeModification(text)).toBe(false);
     },
   );
 });

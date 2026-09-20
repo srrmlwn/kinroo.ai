@@ -15,17 +15,34 @@ export interface CalendarEvent {
   location?: string;
 }
 
+// A confirm-list row is one of three write intents. "update"/"delete" carry
+// `original` (the existing event as found on the server) purely for
+// display — the write only needs eventId.
+export type EventAction =
+  | { type: "create"; candidate: EventCandidate }
+  | { type: "update"; eventId: string; original: CalendarEvent; candidate: EventCandidate }
+  | { type: "delete"; eventId: string; original: CalendarEvent };
+
 export interface ParseResponse {
-  intent: "create" | "query" | "unknown";
-  candidates: EventCandidate[];
+  intent: "create" | "query" | "update" | "delete" | "unknown";
+  actions: EventAction[];
   answer?: string;
   usedLLM: boolean;
   inputType: "text" | "image" | "pdf";
 }
 
+// A confirm-list row as the popup/background flows build and edit it —
+// the parsed action plus UI-only state (whether it's checked, and any
+// scheduling conflicts found for a "create" row).
+export interface EditableAction {
+  action: EventAction;
+  selected: boolean;
+  conflicts?: CalendarEvent[];
+}
+
 export interface CreateEventsResponse {
   events: Array<
-    | { ok: true; event: { id: string; title: string; start: string; end: string } }
-    | { ok: false; candidate: EventCandidate; error: string }
+    | { ok: true; action: EventAction["type"]; event?: CalendarEvent }
+    | { ok: false; action: EventAction["type"]; error: string }
   >;
 }

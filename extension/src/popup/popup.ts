@@ -1,18 +1,13 @@
 import { clearSession, getSessionToken } from "../auth";
-import { getMe, parseText, parseFile, createEvents, ApiError } from "../api";
+import { getMe, parseText, parseFile, applyActions, ApiError } from "../api";
 import { annotateConflicts } from "../conflicts";
-import type { EventCandidate, CalendarEvent } from "../types";
-
-interface EditableCandidate extends EventCandidate {
-  selected: boolean;
-  conflicts?: CalendarEvent[];
-}
+import type { EventAction, EditableAction } from "../types";
 
 type View =
   | { kind: "loading" }
   | { kind: "unauthenticated"; error?: string }
   | { kind: "ready"; email: string; pendingFile?: File; busy?: boolean; notice?: string }
-  | { kind: "confirming"; email: string; candidates: EditableCandidate[]; busy?: boolean; error?: string }
+  | { kind: "confirming"; email: string; actions: EditableAction[]; busy?: boolean; error?: string }
   | { kind: "answer"; email: string; text: string };
 
 let state: View = { kind: "loading" };
@@ -32,11 +27,11 @@ function setState(next: View) {
 // So anything worth not losing mid-compose gets mirrored to storage here and
 // restored in init() when the popup is reopened. pendingFile (a File) can't
 // be serialized, so an attached-but-unparsed file is the one thing this
-// doesn't cover — everything after parsing (candidates, answers) does.
+// doesn't cover — everything after parsing (actions, answers) does.
 function persistDraft(view: View) {
   let payload: unknown = null;
   if (view.kind === "confirming") {
-    payload = { kind: "confirming", candidates: view.candidates };
+    payload = { kind: "confirming", actions: view.actions };
   } else if (view.kind === "answer") {
     payload = { kind: "answer", text: view.text };
   } else if (view.kind === "ready") {
@@ -57,6 +52,19 @@ function toDatetimeLocalValue(iso: string): string {
 
 function fromDatetimeLocalValue(value: string): string {
   return new Date(value).toISOString();
+}
+
+function formatEventTime(start: string, end: string): string {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const dateLabel = startDate.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const startLabel = startDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const endLabel = endDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel}, ${startLabel}–${endLabel}`;
 }
 
 // Safe for text-node context (between tags) — the browser's serializer
@@ -121,8 +129,8 @@ async function init() {
   try {
     const me = await getMe();
     const { draft } = await chrome.storage.local.get("draft");
-    if (draft?.kind === "confirming" && Array.isArray(draft.candidates) && draft.candidates.length > 0) {
-      setState({ kind: "confirming", email: me.email, candidates: draft.candidates });
+    if (draft?.kind === "confirming" && Array.isArray(draft.actions) && draft.actions.length > 0) {
+      setState({ kind: "confirming", email: me.email, actions: draft.actions });
       return;
     }
     if (draft?.kind === "answer" && typeof draft.text === "string") {
@@ -180,20 +188,30 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
     if (result.intent === "query") {
       inputText = "";
       setState({ kind: "answer", email: current.email, text: result.answer ?? "Nothing found." });
-    } else if (result.intent === "create" && result.candidates.length > 0) {
-      inputText = "";
-      const candidates = await annotateConflicts(
-        result.candidates.map((c) => ({ ...c, selected: true })),
-      );
-      setState({ kind: "confirming", email: current.email, candidates });
-    } else {
-      setState({
-        ...current,
-        pendingFile: undefined,
-        busy: false,
-        notice: "Couldn't find an event or question in that — try rephrasing.",
-      });
+      return;
     }
+
+    if (result.actions.length > 0) {
+      inputText = "";
+      // A single match is safe to default-select (matches the existing
+      // bulk-flyer "accept all" UX); multiple ambiguous update/delete
+      // matches default unchecked so the user picks the right one.
+      const editable: EditableAction[] = result.actions.map((action) => ({
+        action,
+        selected: action.type === "create" || result.actions.length === 1,
+      }));
+      const annotated = await annotateConflicts(editable);
+      setState({ kind: "confirming", email: current.email, actions: annotated });
+      return;
+    }
+
+    const notice =
+      result.intent === "update"
+        ? "Couldn't find a matching event to update — try being more specific."
+        : result.intent === "delete"
+          ? "Couldn't find a matching event to cancel — try being more specific."
+          : "Couldn't find an event or question in that — try rephrasing.";
+    setState({ ...current, pendingFile: undefined, busy: false, notice });
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       await clearSession();
@@ -211,28 +229,41 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
 // Fires after a start/end edit; the row already re-rendered without a
 // conflict badge, this fills it back in once the check comes back. Guards
 // on view kind since the popup may have moved on (confirm/cancel) by then.
-function recheckConflicts(candidates: EditableCandidate[]): void {
-  annotateConflicts(candidates).then((annotated) => {
-    if (state.kind === "confirming") setState({ ...state, candidates: annotated });
+function recheckConflicts(actions: EditableAction[]): void {
+  annotateConflicts(actions).then((annotated) => {
+    if (state.kind === "confirming") setState({ ...state, actions: annotated });
   });
 }
 
+// "delete" actions have no candidate to patch — a no-op there is fine since
+// no editable fields render for them.
+function withCandidatePatch(action: EventAction, patch: { title?: string; start?: string; end?: string }): EventAction {
+  if (action.type === "delete") return action;
+  return { ...action, candidate: { ...action.candidate, ...patch } };
+}
+
 async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
-  const selected = current.candidates.filter((c) => c.selected);
+  const selected = current.actions.filter((a) => a.selected);
   if (selected.length === 0) return;
   setState({ ...current, busy: true, error: undefined });
   try {
-    const result = await createEvents(selected);
+    const result = await applyActions(selected.map((a) => a.action));
     const failures = result.events.filter((e) => !e.ok);
     if (failures.length > 0) {
       setState({
         ...current,
         busy: false,
-        error: `${failures.length} of ${selected.length} event(s) failed to save. Try again?`,
+        error: `${failures.length} of ${selected.length} change(s) failed to save. Try again?`,
       });
       return;
     }
-    setState({ kind: "ready", email: current.email, notice: `Added ${selected.length} event(s).` });
+    const verb =
+      selected[0].action.type === "delete"
+        ? "Canceled"
+        : selected[0].action.type === "update"
+          ? "Updated"
+          : "Added";
+    setState({ kind: "ready", email: current.email, notice: `${verb} ${selected.length} event(s).` });
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       await clearSession();
@@ -262,7 +293,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
       <button id="signout" class="link">Sign out</button>
     </div>
     ${view.notice ? `<p class="notice">${escapeHtml(view.notice)}</p>` : ""}
-    <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+    <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
     ${
       view.pendingFile
         ? `<div class="file-chip">${escapeHtml(view.pendingFile.name)} <button id="remove-file" class="link">remove</button></div>`
@@ -319,46 +350,85 @@ function formatRecurrence(rule: string): string {
   return label;
 }
 
+function renderEditableFields(action: Extract<EventAction, { type: "create" | "update" }>, i: number): string {
+  const c = action.candidate;
+  const originalNote =
+    action.type === "update"
+      ? `<p class="action-original">Currently: ${escapeHtml(action.original.title)} — ${escapeHtml(formatEventTime(action.original.start, action.original.end))}</p>`
+      : "";
+  const recurrenceNote =
+    action.type === "create" && c.recurrence?.length
+      ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence[0]))}</p>`
+      : "";
+  return `
+    ${originalNote}
+    <input type="text" class="cand-title" data-index="${i}" value="${escapeAttr(c.title)}" />
+    <div class="candidate-times">
+      <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" />
+      <span>–</span>
+      <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" />
+    </div>
+    ${recurrenceNote}
+  `;
+}
+
 function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
-  const rows = view.candidates
-    .map(
-      (c, i) => `
+  const actionType = view.actions[0]?.action.type ?? "create";
+
+  const rows = view.actions
+    .map((item, i) => {
+      const { action } = item;
+      const fields =
+        action.type === "delete"
+          ? `<p class="action-delete">Cancel "${escapeHtml(action.original.title)}" — ${escapeHtml(formatEventTime(action.original.start, action.original.end))}</p>`
+          : renderEditableFields(action, i);
+      const conflictNote =
+        action.type === "create" && item.conflicts?.length
+          ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(item.conflicts[0].title)}"${item.conflicts.length > 1 ? ` +${item.conflicts.length - 1} more` : ""}</p>`
+          : "";
+      return `
       <div class="candidate" data-index="${i}">
         <label class="candidate-select">
-          <input type="checkbox" class="cand-selected" data-index="${i}" ${c.selected ? "checked" : ""} />
+          <input type="checkbox" class="cand-selected" data-index="${i}" ${item.selected ? "checked" : ""} />
         </label>
         <div class="candidate-fields">
-          <input type="text" class="cand-title" data-index="${i}" value="${escapeAttr(c.title)}" />
-          <div class="candidate-times">
-            <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" />
-            <span>–</span>
-            <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" />
-          </div>
-          ${
-            c.recurrence?.length
-              ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence[0]))}</p>`
-              : ""
-          }
-          ${
-            c.conflicts?.length
-              ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(c.conflicts[0].title)}"${c.conflicts.length > 1 ? ` +${c.conflicts.length - 1} more` : ""}</p>`
-              : ""
-          }
+          ${fields}
+          ${conflictNote}
         </div>
-      </div>`,
-    )
+      </div>`;
+    })
     .join("");
 
-  const selectedCount = view.candidates.filter((c) => c.selected).length;
+  const selectedCount = view.actions.filter((a) => a.selected).length;
+
+  const leadText =
+    actionType === "delete"
+      ? view.actions.length > 1
+        ? `${view.actions.length} matching events found — review before canceling.`
+        : "Review before canceling."
+      : actionType === "update"
+        ? view.actions.length > 1
+          ? `${view.actions.length} matching events found — review the change before updating.`
+          : "Review the change before updating."
+        : view.actions.length > 1
+          ? `${view.actions.length} events found — review before adding.`
+          : "Review before adding.";
+
+  const confirmVerb = actionType === "delete" ? "Cancel" : actionType === "update" ? "Update" : "Add";
+  const confirmBusyLabel =
+    actionType === "delete" ? "Canceling…" : actionType === "update" ? "Updating…" : "Adding…";
+  // "Cancel" is the confirm verb for a delete row, so the dismiss link uses
+  // a different word there to avoid two same-labeled buttons.
+  const dismissLabel = actionType === "delete" ? "Back" : "Cancel";
 
   return `
-    <p class="lead">${view.candidates.length > 1 ? `${view.candidates.length} events found — review before adding.` : "Review before adding."}</p>
+    <p class="lead">${leadText}</p>
     <div class="candidates">${rows}</div>
     ${view.error ? `<p class="notice error">${escapeHtml(view.error)}</p>` : ""}
     <div class="confirm-actions">
-      <button id="cancel" class="link" ${view.busy ? "disabled" : ""}>Cancel</button>
+      <button id="cancel" class="link" ${view.busy ? "disabled" : ""}>${dismissLabel}</button>
       <button id="confirm" class="primary" ${view.busy || selectedCount === 0 ? "disabled" : ""}>
-        ${view.busy ? "Adding…" : `Add ${selectedCount} event${selectedCount === 1 ? "" : "s"}`}
+        ${view.busy ? confirmBusyLabel : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`}
       </button>
     </div>
   `;
@@ -446,39 +516,51 @@ function attachHandlers() {
     document.querySelectorAll<HTMLInputElement>(".cand-selected").forEach((el) => {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
-        const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, selected: el.checked } : c,
+        const actions = current.actions.map((item, idx) =>
+          idx === i ? { ...item, selected: el.checked } : item,
         );
-        setState({ ...current, candidates });
+        setState({ ...current, actions });
       });
     });
     document.querySelectorAll<HTMLInputElement>(".cand-title").forEach((el) => {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
-        const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, title: el.value } : c,
+        const actions = current.actions.map((item, idx) =>
+          idx === i ? { ...item, action: withCandidatePatch(item.action, { title: el.value }) } : item,
         );
-        setState({ ...current, candidates });
+        setState({ ...current, actions });
       });
     });
     document.querySelectorAll<HTMLInputElement>(".cand-start").forEach((el) => {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
-        const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, start: fromDatetimeLocalValue(el.value), conflicts: undefined } : c,
+        const actions = current.actions.map((item, idx) =>
+          idx === i
+            ? {
+                ...item,
+                action: withCandidatePatch(item.action, { start: fromDatetimeLocalValue(el.value) }),
+                conflicts: undefined,
+              }
+            : item,
         );
-        setState({ ...current, candidates });
-        recheckConflicts(candidates);
+        setState({ ...current, actions });
+        recheckConflicts(actions);
       });
     });
     document.querySelectorAll<HTMLInputElement>(".cand-end").forEach((el) => {
       el.addEventListener("change", () => {
         const i = Number(el.dataset.index);
-        const candidates = current.candidates.map((c, idx) =>
-          idx === i ? { ...c, end: fromDatetimeLocalValue(el.value), conflicts: undefined } : c,
+        const actions = current.actions.map((item, idx) =>
+          idx === i
+            ? {
+                ...item,
+                action: withCandidatePatch(item.action, { end: fromDatetimeLocalValue(el.value) }),
+                conflicts: undefined,
+              }
+            : item,
         );
-        setState({ ...current, candidates });
-        recheckConflicts(candidates);
+        setState({ ...current, actions });
+        recheckConflicts(actions);
       });
     });
   }

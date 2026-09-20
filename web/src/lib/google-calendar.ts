@@ -22,6 +22,33 @@ export interface CalendarEvent {
   location?: string;
 }
 
+// A confirm-list row is one of three write intents against an existing or
+// new event. "update"/"delete" carry `original` (the event as found by
+// listEvents/findMatchingEvents) purely for display in the confirm UI —
+// the write itself only needs eventId.
+export type EventAction =
+  | { type: "create"; candidate: EventCandidate }
+  | { type: "update"; eventId: string; original: CalendarEvent; candidate: EventCandidate }
+  | { type: "delete"; eventId: string; original: CalendarEvent };
+
+interface GoogleEventResource {
+  id: string;
+  summary?: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
+  location?: string;
+}
+
+function toCalendarEvent(data: GoogleEventResource, fallback: EventCandidate): CalendarEvent {
+  return {
+    id: data.id,
+    title: data.summary ?? fallback.title,
+    start: data.start.dateTime ?? data.start.date ?? fallback.start,
+    end: data.end.dateTime ?? data.end.date ?? fallback.end,
+    location: data.location,
+  };
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not set`);
@@ -97,20 +124,53 @@ export async function insertEvent(
   if (!res.ok) {
     throw new Error(`Calendar insert failed: ${res.status} ${await res.text()}`);
   }
-  const data = (await res.json()) as {
-    id: string;
-    summary?: string;
-    start: { dateTime?: string; date?: string };
-    end: { dateTime?: string; date?: string };
-    location?: string;
-  };
-  return {
-    id: data.id,
-    title: data.summary ?? candidate.title,
-    start: data.start.dateTime ?? data.start.date ?? candidate.start,
-    end: data.end.dateTime ?? data.end.date ?? candidate.end,
-    location: data.location,
-  };
+  return toCalendarEvent((await res.json()) as GoogleEventResource, candidate);
+}
+
+export async function updateEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  candidate: EventCandidate,
+): Promise<CalendarEvent> {
+  const accessToken = await getAccessToken(userId);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: candidate.title,
+        location: candidate.location,
+        start: { dateTime: candidate.start, timeZone: candidate.timezone },
+        end: { dateTime: candidate.end, timeZone: candidate.timezone },
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Calendar update failed: ${res.status} ${await res.text()}`);
+  }
+  return toCalendarEvent((await res.json()) as GoogleEventResource, candidate);
+}
+
+export async function deleteEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+): Promise<void> {
+  const accessToken = await getAccessToken(userId);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  // Google returns 410 Gone for an event that's already deleted — treat
+  // that as success rather than surfacing an error for a no-op.
+  if (!res.ok && res.status !== 410) {
+    throw new Error(`Calendar delete failed: ${res.status} ${await res.text()}`);
+  }
 }
 
 export async function listEvents(

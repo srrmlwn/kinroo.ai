@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { requireUser } from "@/lib/require-user";
-import { insertEvent, listEvents, type EventCandidate } from "@/lib/google-calendar";
+import { insertEvent, updateEvent, deleteEvent, listEvents, type EventAction } from "@/lib/google-calendar";
 
 async function getCalendarId(userId: string): Promise<string> {
   const [row] = await db
@@ -13,28 +13,36 @@ async function getCalendarId(userId: string): Promise<string> {
   return row?.defaultCalendarId ?? "primary";
 }
 
-// Creates one or more events — the array shape lets a multi-candidate flyer
-// commit in a single request once the user confirms the list.
+function applyAction(userId: string, calendarId: string, action: EventAction) {
+  if (action.type === "create") return insertEvent(userId, calendarId, action.candidate);
+  if (action.type === "update") return updateEvent(userId, calendarId, action.eventId, action.candidate);
+  return deleteEvent(userId, calendarId, action.eventId);
+}
+
+// Applies one or more create/update/delete actions in a single request —
+// the array shape lets a multi-candidate flyer, or several ambiguous
+// matches for an edit/cancel request, commit together once the user
+// confirms the list.
 export async function POST(request: Request) {
   const auth = await requireUser(request);
   if ("unauthorized" in auth) return auth.unauthorized;
 
   const body = await request.json().catch(() => null);
-  const candidates = body?.candidates as EventCandidate[] | undefined;
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    return Response.json({ error: "candidates array is required" }, { status: 400 });
+  const actions = body?.actions as EventAction[] | undefined;
+  if (!Array.isArray(actions) || actions.length === 0) {
+    return Response.json({ error: "actions array is required" }, { status: 400 });
   }
 
   const calendarId = await getCalendarId(auth.userId);
 
   const results = await Promise.allSettled(
-    candidates.map((candidate) => insertEvent(auth.userId, calendarId, candidate)),
+    actions.map((action) => applyAction(auth.userId, calendarId, action)),
   );
 
   const events = results.map((result, i) =>
     result.status === "fulfilled"
-      ? { ok: true as const, event: result.value }
-      : { ok: false as const, candidate: candidates[i], error: String(result.reason) },
+      ? { ok: true as const, action: actions[i].type, event: result.value ?? undefined }
+      : { ok: false as const, action: actions[i].type, error: String(result.reason) },
   );
 
   const allFailed = events.every((e) => !e.ok);
