@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      # build first: it generates web/.next/types (Next.js 16's typed-routes
+      # globals, e.g. LayoutProps) that a standalone `tsc --noEmit` needs on
+      # a fresh checkout — running typecheck first fails with no prior build.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run test
