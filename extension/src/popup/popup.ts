@@ -1,5 +1,6 @@
 import { clearSession, getSessionToken } from "../auth";
-import { getMe, parseText, parseFile, applyActions, ApiError } from "../api";
+import { getMe, parseText, parseFile, applyActions, requestHandoffToken, ApiError } from "../api";
+import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
 import type { EventAction, EditableAction } from "../types";
 
@@ -177,6 +178,23 @@ async function handleSignOut() {
   setState({ kind: "unauthenticated" });
 }
 
+async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
+  try {
+    const [{ token }, config] = await Promise.all([requestHandoffToken(), getConfig()]);
+    await chrome.tabs.create({ url: `${config.apiBase}/api/auth/handoff?token=${encodeURIComponent(token)}` });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      await clearSession();
+      setState({ kind: "unauthenticated", error: "Session expired — please reconnect" });
+      return;
+    }
+    setState({
+      ...current,
+      notice: err instanceof Error ? err.message : "Could not open settings",
+    });
+  }
+}
+
 async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
   if (!inputText.trim() && !current.pendingFile) return;
   setState({ ...current, busy: true });
@@ -290,7 +308,10 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   return `
     <div class="account-row">
       <span class="email">${escapeHtml(view.email)}</span>
-      <button id="signout" class="link">Sign out</button>
+      <span class="account-links">
+        <button id="settings" class="link">Settings</button>
+        <button id="signout" class="link">Sign out</button>
+      </span>
     </div>
     ${view.notice ? `<p class="notice">${escapeHtml(view.notice)}</p>` : ""}
     <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
@@ -473,6 +494,7 @@ function attachHandlers() {
   if (state.kind === "ready") {
     const current = state;
     document.getElementById("signout")?.addEventListener("click", handleSignOut);
+    document.getElementById("settings")?.addEventListener("click", () => handleOpenSettings(current));
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
     document.getElementById("remove-file")?.addEventListener("click", () => {
       setState({ ...current, pendingFile: undefined });

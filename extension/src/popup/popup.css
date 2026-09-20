@@ -33,6 +33,11 @@ h1 {
   color: #666;
 }
 
+.account-links {
+  display: flex;
+  gap: 10px;
+}
+
 button {
   font: inherit;
   cursor: pointer;

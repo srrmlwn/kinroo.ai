@@ -62,6 +62,16 @@ export async function getEvents(start: string, end: string): Promise<{ events: C
   return res.json();
 }
 
+// Used by the popup's "Settings" link: the web app has no login of its own,
+// so this mints a short-lived token the extension hands off in a URL, which
+// the backend exchanges for a browser session cookie (see
+// api/auth/handoff/route.ts).
+export async function requestHandoffToken(): Promise<{ token: string }> {
+  const res = await apiFetch("/api/auth/handoff", { method: "POST" });
+  if (!res.ok) throw new ApiError("Could not open settings", res.status);
+  return res.json();
+}
+
 export async function applyActions(actions: EventAction[]): Promise<CreateEventsResponse> {
   const res = await apiFetch("/api/events", {
     method: "POST",
