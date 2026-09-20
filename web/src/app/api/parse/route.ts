@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     const result = await parseInput(auth.userId, input, "extension");
     return Response.json({
       intent: result.intent,
-      candidates: result.candidates,
+      actions: result.actions,
       answer: result.answer,
       usedLLM: result.usedLlm,
       inputType: result.inputType,

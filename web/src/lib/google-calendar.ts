@@ -9,6 +9,9 @@ export interface EventCandidate {
   end: string; // ISO 8601 datetime
   timezone?: string;
   location?: string;
+  // iCalendar RRULE lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10"].
+  // Passed straight through to the Calendar API's `recurrence` field.
+  recurrence?: string[];
 }
 
 export interface CalendarEvent {
@@ -17,6 +20,33 @@ export interface CalendarEvent {
   start: string;
   end: string;
   location?: string;
+}
+
+// A confirm-list row is one of three write intents against an existing or
+// new event. "update"/"delete" carry `original` (the event as found by
+// listEvents/findMatchingEvents) purely for display in the confirm UI —
+// the write itself only needs eventId.
+export type EventAction =
+  | { type: "create"; candidate: EventCandidate }
+  | { type: "update"; eventId: string; original: CalendarEvent; candidate: EventCandidate }
+  | { type: "delete"; eventId: string; original: CalendarEvent };
+
+interface GoogleEventResource {
+  id: string;
+  summary?: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
+  location?: string;
+}
+
+function toCalendarEvent(data: GoogleEventResource, fallback: EventCandidate): CalendarEvent {
+  return {
+    id: data.id,
+    title: data.summary ?? fallback.title,
+    start: data.start.dateTime ?? data.start.date ?? fallback.start,
+    end: data.end.dateTime ?? data.end.date ?? fallback.end,
+    location: data.location,
+  };
 }
 
 function requireEnv(name: string): string {
@@ -87,26 +117,74 @@ export async function insertEvent(
         location: candidate.location,
         start: { dateTime: candidate.start, timeZone: candidate.timezone },
         end: { dateTime: candidate.end, timeZone: candidate.timezone },
+        recurrence: candidate.recurrence,
       }),
     },
   );
   if (!res.ok) {
     throw new Error(`Calendar insert failed: ${res.status} ${await res.text()}`);
   }
-  const data = (await res.json()) as {
-    id: string;
-    summary?: string;
-    start: { dateTime?: string; date?: string };
-    end: { dateTime?: string; date?: string };
-    location?: string;
-  };
-  return {
-    id: data.id,
-    title: data.summary ?? candidate.title,
-    start: data.start.dateTime ?? data.start.date ?? candidate.start,
-    end: data.end.dateTime ?? data.end.date ?? candidate.end,
-    location: data.location,
-  };
+  return toCalendarEvent((await res.json()) as GoogleEventResource, candidate);
+}
+
+export async function updateEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  candidate: EventCandidate,
+): Promise<CalendarEvent> {
+  const accessToken = await getAccessToken(userId);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: candidate.title,
+        location: candidate.location,
+        start: { dateTime: candidate.start, timeZone: candidate.timezone },
+        end: { dateTime: candidate.end, timeZone: candidate.timezone },
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Calendar update failed: ${res.status} ${await res.text()}`);
+  }
+  return toCalendarEvent((await res.json()) as GoogleEventResource, candidate);
+}
+
+export async function deleteEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+): Promise<void> {
+  const accessToken = await getAccessToken(userId);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  // Google returns 410 Gone for an event that's already deleted — treat
+  // that as success rather than surfacing an error for a no-op.
+  if (!res.ok && res.status !== 410) {
+    throw new Error(`Calendar delete failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+// Shared create/update/delete dispatch — used by the extension's confirm
+// list (api/events/route.ts) and by the email reply-to-confirm flow
+// (api/email/inbound/route.ts), so both channels write through the same
+// code path once something is confirmed.
+export async function applyEventAction(
+  userId: string,
+  calendarId: string,
+  action: EventAction,
+): Promise<CalendarEvent | void> {
+  if (action.type === "create") return insertEvent(userId, calendarId, action.candidate);
+  if (action.type === "update") return updateEvent(userId, calendarId, action.eventId, action.candidate);
+  return deleteEvent(userId, calendarId, action.eventId);
 }
 
 export async function listEvents(

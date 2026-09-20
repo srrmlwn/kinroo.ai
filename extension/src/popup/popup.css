@@ -33,6 +33,11 @@ h1 {
   color: #666;
 }
 
+.account-links {
+  display: flex;
+  gap: 10px;
+}
+
 button {
   font: inherit;
   cursor: pointer;
@@ -155,6 +160,30 @@ textarea {
   border: 1px solid #ddd;
   border-radius: 4px;
   padding: 2px 4px;
+}
+
+.conflict-warning {
+  font-size: 11px;
+  color: #b3261e;
+  margin: 4px 0 0;
+}
+
+.recurrence-note {
+  font-size: 11px;
+  color: #666;
+  margin: 4px 0 0;
+}
+
+.action-original {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 4px;
+}
+
+.action-delete {
+  font-size: 13px;
+  color: #b3261e;
+  margin: 0;
 }
 
 .confirm-actions {

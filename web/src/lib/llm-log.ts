@@ -15,7 +15,7 @@ export interface LlmCallLog {
   inputType: "text" | "image" | "pdf";
   usedLlm: boolean;
   model?: string;
-  intent: "create" | "query" | "unknown";
+  intent: "create" | "query" | "update" | "delete" | "unknown";
   candidateCount: number;
   promptTokens?: number;
   completionTokens?: number;

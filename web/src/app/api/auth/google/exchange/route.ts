@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { users, oauthTokens, settings } from "@/lib/db/schema";
+import { users, oauthTokens, settings, emailIdentities } from "@/lib/db/schema";
 import { encrypt } from "@/lib/crypto";
 import { createSessionToken } from "@/lib/session";
 import { exchangeCodeForTokens, fetchGoogleProfile } from "@/lib/google-oauth";
@@ -66,6 +66,15 @@ export async function POST(request: Request) {
       .insert(settings)
       .values({ userId: user.id, timezone: timezone ?? "UTC" })
       .onConflictDoNothing({ target: settings.userId });
+
+    // Seeds the address -> user_id lookup email ingest resolves senders
+    // through (SPEC.md's family-readiness note: identity for new channels
+    // never becomes a column on `users`). Idempotent — re-auth doesn't
+    // duplicate or move the mapping.
+    await db
+      .insert(emailIdentities)
+      .values({ address: user.email.toLowerCase(), userId: user.id })
+      .onConflictDoNothing({ target: emailIdentities.address });
 
     const sessionToken = await createSessionToken(user.id);
     return Response.json({ sessionToken, email: user.email });

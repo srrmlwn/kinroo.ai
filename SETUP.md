@@ -71,7 +71,7 @@ Set `googleClientId` to the Client ID from step 2. Leave `apiBase` as `http://lo
 cd web && npm run db:migrate
 ```
 
-This applies `web/drizzle/0000_*.sql` (already generated from the schema) to your Neon database — creates `users`, `oauth_tokens`, `settings`, `llm_calls`.
+This applies `web/drizzle/0000_*.sql` and `0001_*.sql` (already generated from the schema) to your Neon database — creates `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`.
 
 ## 8. Run it
 
@@ -91,6 +91,22 @@ Reload the extension at `chrome://extensions` (the reload icon on its card — C
 5. Paste a screenshot of an event invite, or upload a photo of a flyer → confirm list should show one or more correctly-parsed candidates.
 
 If step 9 fails, the most likely culprits in order: `extension/config.json` still has the placeholder client ID (rebuild after fixing), the redirect URI registered in Google Cloud doesn't match the extension's actual ID (re-check `chrome://extensions`), or `web/.env` wasn't picked up (`next dev` needs a restart after editing `.env`).
+
+## 10. (Optional) Email ingest via SendGrid
+
+Skip this section unless you're standing up the `add@<domain>` email channel — everything else works without it. Needs a domain you control (SendGrid Inbound Parse requires DNS access; you can't use a `gmail.com` address here).
+
+1. Pick a subdomain to receive on, e.g. `mail.kinroo.ai` — this is `EMAIL_INGEST_DOMAIN`.
+2. **SendGrid → Settings → Sender Authentication** — authenticate your root domain (adds the SPF/DKIM DNS records SendGrid gives you). Required for outbound confirmation emails to not get spam-filtered.
+3. **SendGrid → Settings → Inbound Parse → Add Host & URL**:
+   - Receiving domain/subdomain: `EMAIL_INGEST_DOMAIN` from step 1.
+   - Destination URL: `https://<your-deployed-api>/api/email/inbound?key=<EMAIL_INGEST_WEBHOOK_SECRET>` — has to be a publicly reachable HTTPS URL, so this step needs `web/` actually deployed (see "Not covered here" below); it can't point at `localhost`.
+   - This step also tells you the MX record to add at your DNS provider for that subdomain — add it and wait for propagation.
+4. **SendGrid → Settings → API Keys → Create API Key** — needs "Mail Send" permission. This is `SENDGRID_API_KEY`.
+5. Generate `EMAIL_INGEST_WEBHOOK_SECRET` with `openssl rand -base64 32` and fill in all three new vars in `web/.env` (and your Vercel project's env config, once deployed).
+6. Test by emailing `add@<EMAIL_INGEST_DOMAIN>` something like "dentist appointment 9am tomorrow" from the address you signed into the extension with — you should get a confirmation email back asking to reply YES/NO.
+
+This can't be verified from this repo alone (needs a real domain, DNS propagation, and a public deployment) — the code path (`api/email/inbound`) is covered by unit tests on its pure parsing logic (`lib/email-inbound.test.ts`) but not exercised end-to-end.
 
 ## Not covered here (later, if you deploy)
 

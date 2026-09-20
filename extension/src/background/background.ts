@@ -1,5 +1,7 @@
 import { connectGoogle } from "../auth";
 import { parseText } from "../api";
+import { annotateConflicts } from "../conflicts";
+import type { EditableAction } from "../types";
 
 const CONTEXT_MENU_ID = "kinroo-add-selection";
 
@@ -54,13 +56,17 @@ chrome.contextMenus.onClicked.addListener((info) => {
           draft: { kind: "answer", text: result.answer ?? "Nothing found." },
         });
         setBadge("✓", "#1E8E3E");
-      } else if (result.intent === "create" && result.candidates.length > 0) {
-        await chrome.storage.local.set({
-          draft: {
-            kind: "confirming",
-            candidates: result.candidates.map((c) => ({ ...c, selected: true })),
-          },
-        });
+      } else if (result.actions.length > 0) {
+        // A single match is safe to default-select (matches the popup's
+        // "accept all" UX for a lone create); multiple ambiguous
+        // update/delete matches default unchecked so the user picks the
+        // right one once they open the popup.
+        const editable: EditableAction[] = result.actions.map((action) => ({
+          action,
+          selected: action.type === "create" || result.actions.length === 1,
+        }));
+        const actions = await annotateConflicts(editable);
+        await chrome.storage.local.set({ draft: { kind: "confirming", actions } });
         setBadge("✓", "#1E8E3E");
       } else {
         // Nothing recognizable in the selection — no popup is open to show

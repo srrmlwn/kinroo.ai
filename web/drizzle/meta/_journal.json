@@ -8,6 +8,13 @@
       "when": 1789788173917,
       "tag": "0000_typical_the_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789872350131,
+      "tag": "0001_previous_shockwave",
+      "breakpoints": true
     }
   ]
 }

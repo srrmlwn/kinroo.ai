@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { looksLikeQuery, fastPathExtractCreate, fastPathQueryRange } from "./fast-path";
+import {
+  looksLikeQuery,
+  looksLikeRecurring,
+  looksLikeModification,
+  fastPathExtractCreate,
+  fastPathQueryRange,
+} from "./fast-path";
 
 // Fixed reference: Friday 2026-09-18, noon Pacific.
 const REF = new Date("2026-09-18T12:00:00-07:00");
@@ -23,6 +29,44 @@ describe("looksLikeQuery", () => {
   ])("does not treat %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(false);
   });
+});
+
+describe("looksLikeRecurring", () => {
+  it.each([
+    "team standup every Monday at 9am",
+    "yoga class each Tuesday",
+    "daily standup at 10am",
+    "weekly 1:1 with sam",
+    "recurring dentist checkup",
+  ])("treats %j as recurring", (text) => {
+    expect(looksLikeRecurring(text)).toBe(true);
+  });
+
+  it.each(["doctor's appointment at 9am tomorrow", "lunch with sam tomorrow 12:30pm"])(
+    "does not treat %j as recurring",
+    (text) => {
+      expect(looksLikeRecurring(text)).toBe(false);
+    },
+  );
+});
+
+describe("looksLikeModification", () => {
+  it.each([
+    "cancel my dentist appointment tomorrow",
+    "delete the team sync",
+    "move my meeting to 4pm",
+    "reschedule dentist to next Friday",
+    "rename my 3pm call to Budget review",
+  ])("treats %j as a modification", (text) => {
+    expect(looksLikeModification(text)).toBe(true);
+  });
+
+  it.each(["doctor's appointment at 9am tomorrow", "lunch with sam tomorrow 12:30pm"])(
+    "does not treat %j as a modification",
+    (text) => {
+      expect(looksLikeModification(text)).toBe(false);
+    },
+  );
 });
 
 describe("fastPathExtractCreate", () => {

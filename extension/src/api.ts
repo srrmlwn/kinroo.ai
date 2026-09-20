@@ -1,6 +1,6 @@
 import { getConfig } from "./config";
 import { getSessionToken } from "./auth";
-import type { EventCandidate, ParseResponse, CreateEventsResponse } from "./types";
+import type { ParseResponse, CreateEventsResponse, CalendarEvent, EventAction } from "./types";
 
 class ApiError extends Error {
   constructor(
@@ -53,17 +53,34 @@ export async function parseFile(file: File): Promise<ParseResponse> {
   return res.json();
 }
 
-export async function createEvents(
-  candidates: EventCandidate[],
-): Promise<CreateEventsResponse> {
+// Used to flag scheduling conflicts in the confirm list before the user
+// commits — a read, so it's fine to call speculatively and ignore failures.
+export async function getEvents(start: string, end: string): Promise<{ events: CalendarEvent[] }> {
+  const params = new URLSearchParams({ start, end });
+  const res = await apiFetch(`/api/events?${params}`, { method: "GET" });
+  if (!res.ok) throw new ApiError("Could not check for conflicts", res.status);
+  return res.json();
+}
+
+// Used by the popup's "Settings" link: the web app has no login of its own,
+// so this mints a short-lived token the extension hands off in a URL, which
+// the backend exchanges for a browser session cookie (see
+// api/auth/handoff/route.ts).
+export async function requestHandoffToken(): Promise<{ token: string }> {
+  const res = await apiFetch("/api/auth/handoff", { method: "POST" });
+  if (!res.ok) throw new ApiError("Could not open settings", res.status);
+  return res.json();
+}
+
+export async function applyActions(actions: EventAction[]): Promise<CreateEventsResponse> {
   const res = await apiFetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ candidates }),
+    body: JSON.stringify({ actions }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.error ?? "Could not create events", res.status);
+    throw new ApiError(body.error ?? "Could not save changes", res.status);
   }
   return res.json();
 }
