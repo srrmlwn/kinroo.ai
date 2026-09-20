@@ -31,6 +31,25 @@ export function looksLikeModification(text: string): boolean {
   return MODIFICATION_PATTERN.test(text);
 }
 
+// chrono-node's `timezone` option only understands abbreviations ("PST",
+// "CDT") or a raw minute offset — an IANA zone name like
+// "America/Los_Angeles" silently fails to match and resolves to no
+// timezone at all, so every parsed time comes back as if it had zero UTC
+// offset. This converts an IANA name into the numeric offset chrono
+// expects (sign convention: minutes to add to UTC to get local time, e.g.
+// Pacific Daylight Time = -420), computed for the given instant so it's
+// DST-aware.
+function timezoneOffsetMinutes(timeZone: string, date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" }).formatToParts(date);
+  const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(raw);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = match[3] ? Number(match[3]) : 0;
+  return sign * (hours * 60 + minutes);
+}
+
 // Regex/date-library fast path for the common "<title> at <time>" phrasing.
 // Returns null when it isn't confident, so the caller falls back to Claude
 // rather than writing a bad title.
@@ -40,7 +59,8 @@ export function fastPathExtractCreate(
   timezone: string,
   defaultDurationMin: number,
 ): EventCandidate | null {
-  const results = chrono.parse(text, { instant: referenceDate, timezone }, { forwardDate: true });
+  const offsetMinutes = timezoneOffsetMinutes(timezone, referenceDate);
+  const results = chrono.parse(text, { instant: referenceDate, timezone: offsetMinutes }, { forwardDate: true });
   if (results.length === 0) return null;
 
   const result = results[0];
@@ -59,6 +79,33 @@ export function fastPathExtractCreate(
   return { title, start: start.toISOString(), end: end.toISOString() };
 }
 
+// Start/end of the calendar day (in `timeZone`) that `instant` falls on,
+// as correct UTC instants — deliberately not `Date.prototype.setHours`,
+// which truncates in the *server's* local timezone rather than the one
+// asked for, silently wrong for a "what's on Saturday" query as soon as
+// the server's system timezone differs from the user's (true for any real
+// deployment, since a query's timezone comes from settings.timezone, not
+// the machine running the code).
+function zonedDayBoundaries(instant: Date, timeZone: string): { start: Date; end: Date } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+
+  // A UTC instant carrying the target day's wall-clock numbers — not the
+  // real boundary yet, just a reference point close enough in time to look
+  // up the correct (DST-aware) offset for that day.
+  const wallClockAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), 0, 0, 0, 0);
+  const offsetMinutes = timezoneOffsetMinutes(timeZone, new Date(wallClockAsUtc));
+
+  const start = new Date(wallClockAsUtc - offsetMinutes * 60_000);
+  const end = new Date(start.getTime() + 24 * 60 * 60_000 - 1);
+  return { start, end };
+}
+
 // Deterministic date-range resolution for simple queries ("Saturday",
 // "tomorrow", "next week"). Returns null when chrono can't find a
 // reference, so the caller falls back to Claude for phrasing like
@@ -68,7 +115,8 @@ export function fastPathQueryRange(
   referenceDate: Date,
   timezone: string,
 ): { start: Date; end: Date } | null {
-  const results = chrono.parse(text, { instant: referenceDate, timezone }, { forwardDate: true });
+  const offsetMinutes = timezoneOffsetMinutes(timezone, referenceDate);
+  const results = chrono.parse(text, { instant: referenceDate, timezone: offsetMinutes }, { forwardDate: true });
   if (results.length === 0) return null;
 
   const result = results[0];
@@ -79,9 +127,6 @@ export function fastPathQueryRange(
     return { start, end };
   }
 
-  const dayStart = new Date(start);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(start);
-  dayEnd.setHours(23, 59, 59, 999);
+  const { start: dayStart, end: dayEnd } = zonedDayBoundaries(start, timezone);
   return { start: dayStart, end: dayEnd };
 }
