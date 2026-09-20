@@ -15,6 +15,9 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
-      - run: npm run typecheck
+      # build first: it generates web/.next/types (Next.js 16's typed-routes
+      # globals, e.g. LayoutProps) that a standalone `tsc --noEmit` needs on
+      # a fresh checkout — running typecheck first fails with no prior build.
       - run: npm run build
+      - run: npm run typecheck
       - run: npm run test
