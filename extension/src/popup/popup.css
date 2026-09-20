@@ -79,6 +79,13 @@ textarea {
   resize: vertical;
 }
 
+.detect-page {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-top: 8px;
+}
+
 .file-label {
   display: block;
   margin-top: 8px;

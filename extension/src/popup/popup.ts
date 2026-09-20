@@ -2,7 +2,7 @@ import { clearSession, getSessionToken } from "../auth";
 import { getMe, parseText, parseFile, applyActions, requestHandoffToken, ApiError } from "../api";
 import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
-import type { EventAction, EditableAction } from "../types";
+import type { EventAction, EditableAction, ParseResponse } from "../types";
 
 type View =
   | { kind: "loading" }
@@ -90,34 +90,42 @@ function escapeAttr(text: string): string {
 // Best-effort: pre-fill the compose box with whatever's selected on the
 // page you were looking at when you opened the popup, so the common case
 // (select a line, click the icon, hit Go) doesn't require the right-click
-// menu at all. Falls back to the whole page's visible text when nothing is
-// selected, so clicking the icon on an open invite/itinerary page still
-// prefills something worth editing. activeTab makes this a one-off, no
-// standing host access. Fails silently on chrome://, the Chrome Web Store,
-// PDFs, etc. — those just get a blank compose box, same as before this
-// existed.
-const MAX_PAGE_SCAN_CHARS = 4000;
-
-async function readPageContent(): Promise<{ text: string; scanned: boolean }> {
+// menu at all. activeTab makes this a one-off, no standing host access.
+// Fails silently on chrome://, the Chrome Web Store, PDFs, etc. — those
+// just get a blank compose box.
+async function readPageSelection(): Promise<string> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return { text: "", scanned: false };
+    if (!tab?.id) return "";
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => {
-        const selection = window.getSelection()?.toString().trim() ?? "";
-        if (selection) return { text: selection, scanned: false };
-        return { text: document.body?.innerText ?? "", scanned: true };
-      },
+      func: () => window.getSelection()?.toString().trim() ?? "",
     });
-    const result = injection?.result as { text: string; scanned: boolean } | undefined;
-    if (!result) return { text: "", scanned: false };
-    return {
-      text: result.text.trim().slice(0, MAX_PAGE_SCAN_CHARS),
-      scanned: result.scanned,
-    };
+    return typeof injection?.result === "string" ? injection.result : "";
   } catch {
-    return { text: "", scanned: false };
+    return "";
+  }
+}
+
+// Explicit, on-demand full-page scan — a separate action ("Detect events on
+// this page") rather than something that silently prefills the compose box,
+// since dumping a whole page's text into a visible text field the user
+// didn't ask to fill is noisy and easy to mistake for something they typed.
+const MAX_PAGE_SCAN_CHARS = 4000;
+
+async function scanPageText(): Promise<string> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return "";
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => document.body?.innerText ?? "",
+    });
+    return typeof injection?.result === "string"
+      ? injection.result.trim().slice(0, MAX_PAGE_SCAN_CHARS)
+      : "";
+  } catch {
+    return "";
   }
 }
 
@@ -139,17 +147,10 @@ async function init() {
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
-    let scannedPage = false;
     if (!inputText) {
-      const page = await readPageContent();
-      inputText = page.text;
-      scannedPage = page.scanned && page.text.length > 0;
+      inputText = await readPageSelection();
     }
-    setState({
-      kind: "ready",
-      email: me.email,
-      notice: scannedPage ? "Scanned this page — edit or clear before sending." : undefined,
-    });
+    setState({ kind: "ready", email: me.email });
   } catch {
     await clearSession();
     setState({ kind: "unauthenticated" });
@@ -195,6 +196,56 @@ async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
   }
 }
 
+// Shared by the compose box (handleSubmit) and the page-scan button
+// (handleDetectPage) — both end up with a ParseResponse to react to, they
+// just differ in where the text they sent came from.
+async function handleParsed(current: Extract<View, { kind: "ready" }>, result: ParseResponse) {
+  if (result.intent === "query") {
+    inputText = "";
+    setState({ kind: "answer", email: current.email, text: result.answer ?? "Nothing found." });
+    return;
+  }
+
+  if (result.actions.length > 0) {
+    inputText = "";
+    // A single match is safe to default-select (matches the existing
+    // bulk-flyer "accept all" UX); multiple ambiguous update/delete
+    // matches default unchecked so the user picks the right one.
+    const editable: EditableAction[] = result.actions.map((action) => ({
+      action,
+      selected: action.type === "create" || result.actions.length === 1,
+    }));
+    const annotated = await annotateConflicts(editable);
+    setState({ kind: "confirming", email: current.email, actions: annotated });
+    return;
+  }
+
+  const notice =
+    result.intent === "update"
+      ? "Couldn't find a matching event to update — try being more specific."
+      : result.intent === "delete"
+        ? "Couldn't find a matching event to cancel — try being more specific."
+        : "Couldn't find an event or question in that — try rephrasing.";
+  setState({ ...current, pendingFile: undefined, busy: false, notice });
+}
+
+function handleApiErrorOrElse(
+  current: Extract<View, { kind: "ready" }>,
+  err: unknown,
+): void {
+  if (err instanceof ApiError && err.status === 401) {
+    clearSession().then(() =>
+      setState({ kind: "unauthenticated", error: "Session expired — please reconnect" }),
+    );
+    return;
+  }
+  setState({
+    ...current,
+    busy: false,
+    notice: err instanceof Error ? err.message : "Something went wrong",
+  });
+}
+
 async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
   if (!inputText.trim() && !current.pendingFile) return;
   setState({ ...current, busy: true });
@@ -202,45 +253,24 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
     const result = current.pendingFile
       ? await parseFile(current.pendingFile)
       : await parseText(inputText.trim());
-
-    if (result.intent === "query") {
-      inputText = "";
-      setState({ kind: "answer", email: current.email, text: result.answer ?? "Nothing found." });
-      return;
-    }
-
-    if (result.actions.length > 0) {
-      inputText = "";
-      // A single match is safe to default-select (matches the existing
-      // bulk-flyer "accept all" UX); multiple ambiguous update/delete
-      // matches default unchecked so the user picks the right one.
-      const editable: EditableAction[] = result.actions.map((action) => ({
-        action,
-        selected: action.type === "create" || result.actions.length === 1,
-      }));
-      const annotated = await annotateConflicts(editable);
-      setState({ kind: "confirming", email: current.email, actions: annotated });
-      return;
-    }
-
-    const notice =
-      result.intent === "update"
-        ? "Couldn't find a matching event to update — try being more specific."
-        : result.intent === "delete"
-          ? "Couldn't find a matching event to cancel — try being more specific."
-          : "Couldn't find an event or question in that — try rephrasing.";
-    setState({ ...current, pendingFile: undefined, busy: false, notice });
+    await handleParsed(current, result);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      await clearSession();
-      setState({ kind: "unauthenticated", error: "Session expired — please reconnect" });
+    handleApiErrorOrElse(current, err);
+  }
+}
+
+async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
+  setState({ ...current, busy: true, notice: undefined });
+  try {
+    const pageText = await scanPageText();
+    if (!pageText) {
+      setState({ ...current, busy: false, notice: "Couldn't read any text on this page." });
       return;
     }
-    setState({
-      ...current,
-      busy: false,
-      notice: err instanceof Error ? err.message : "Something went wrong",
-    });
+    const result = await parseText(pageText);
+    await handleParsed(current, result);
+  } catch (err) {
+    handleApiErrorOrElse(current, err);
   }
 }
 
@@ -324,6 +354,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
            </label>`
     }
     <button id="submit" class="primary" ${view.busy ? "disabled" : ""}>${view.busy ? "Working…" : "Go"}</button>
+    <button id="detect-page" class="link detect-page" ${view.busy ? "disabled" : ""}>Detect events on this page</button>
   `;
 }
 
@@ -496,6 +527,7 @@ function attachHandlers() {
     document.getElementById("signout")?.addEventListener("click", handleSignOut);
     document.getElementById("settings")?.addEventListener("click", () => handleOpenSettings(current));
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
+    document.getElementById("detect-page")?.addEventListener("click", () => handleDetectPage(current));
     document.getElementById("remove-file")?.addEventListener("click", () => {
       setState({ ...current, pendingFile: undefined });
     });
