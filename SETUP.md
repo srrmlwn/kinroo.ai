@@ -108,6 +108,16 @@ Skip this section unless you're standing up the `add@<domain>` email channel —
 
 This can't be verified from this repo alone (needs a real domain, DNS propagation, and a public deployment) — the code path (`api/email/inbound`) is covered by unit tests on its pure parsing logic (`lib/email-inbound.test.ts`) but not exercised end-to-end.
 
-## Not covered here (later, if you deploy)
+## 11. Deploying `web/` to Vercel
 
-Deploying `web/` to Vercel, moving `DATABASE_URL`/secrets into Vercel's env config, adding the production API URL to the extension's `host_permissions` and `config.json`, and registering a second (production) redirect URI once the extension has a stable published ID — all out of scope until there's something worth deploying.
+As of this writing, no Vercel project exists for kinroo.ai yet — this is the sequence to stand one up.
+
+1. **Create the project**: Vercel → Add New → Project → import the `kinroo.ai` GitHub repo.
+   - This repo is an npm-workspaces monorepo (`web/` + `extension/`), so set **Root Directory** to `web` in the project's settings — Vercel then runs the build from there and auto-detects Next.js. `extension/` is never deployed; it isn't a web app.
+2. **Environment variables**: Project Settings → Environment Variables. Copy every value from your local `web/.env` in (`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, plus `SENDGRID_API_KEY`/`EMAIL_INGEST_DOMAIN`/`EMAIL_INGEST_WEBHOOK_SECRET` if you're using email ingest). Use a separate Neon database/branch for production rather than pointing at your local dev database.
+3. **Domain**: Project Settings → Domains → add `kinroo.ai`.
+   - `kinroo.ai` is an **apex/root domain** — DNS doesn't allow a CNAME at the zone apex, so Vercel will ask for either (a) an **A record** pointing the apex at Vercel's IP, or (b) switching the domain's nameservers to Vercel's. A CNAME only applies if you also want a subdomain (e.g. `www.kinroo.ai`) pointing at Vercel. Vercel's domain-add flow tells you exactly which records to create once you add the domain, based on where `kinroo.ai` is currently registered/hosted.
+   - Where `kinroo.ai` is registered determines who edits those DNS records — check the registrar before starting; it isn't currently attached to this Vercel account's domains.
+4. **Extension**: for a build meant to talk to the deployed backend, set `apiBase` in your local (gitignored) `extension/config.json` to `https://kinroo.ai`. `host_permissions` in `extension/manifest.json` already includes `https://kinroo.ai/*` alongside the localhost dev entry, so no manifest change is needed.
+5. **OAuth redirect URI**: the redirect URI (`https://<extension-id>.chromiumapp.org/`) is derived from the extension's ID, not from where the backend is hosted — deploying `web/` to Vercel doesn't require a new one. You *will* need a second redirect URI registered in Google Cloud later, separately, once the extension is published to the Chrome Web Store — publishing assigns a new, different extension ID than your local unpacked one.
+6. **Email ingest** (if using it): now that there's a public HTTPS URL, come back to SETUP.md §10 step 3 and point SendGrid's Inbound Parse destination URL at `https://kinroo.ai/api/email/inbound?key=<EMAIL_INGEST_WEBHOOK_SECRET>`.
