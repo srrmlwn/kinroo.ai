@@ -61,4 +61,4 @@ An earlier prototype, `simple-family-calendar`, explored a different bet — its
 
 ## Current state
 
-v1 is implemented end to end (auth, parse, events, popup UI) but **not yet run against real credentials** — see `SETUP.md` for the external accounts (Google Cloud, Neon, Anthropic) needed before it can actually be exercised, and `TASKS.md` for what's checked off. Don't assume it's been manually verified working until `SETUP.md`'s walkthrough has actually been run once.
+v1 is implemented end to end (auth, parse, events, edit/cancel, recurring events, conflict detection, settings page, email ingest, popup UI, branding) and has been manually verified locally against a real Google account, Neon database, and Claude API key — see `SETUP.md` for the walkthrough and `TASKS.md` for what's checked off. It is **not yet deployed anywhere** — no Vercel project exists, `kinroo.ai` isn't pointed at anything, and email ingest hasn't been exercised end-to-end (it needs a public HTTPS URL for the SendGrid webhook).

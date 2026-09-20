@@ -22,5 +22,5 @@
     "service_worker": "background.js"
   },
   "permissions": ["storage", "identity", "contextMenus", "scripting", "activeTab"],
-  "host_permissions": ["http://localhost:3000/*"]
+  "host_permissions": ["http://localhost:3000/*", "https://kinroo.ai/*"]
 }
