@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { extractAddresses, parseSenderAddress, parseRecipientAlias, classifyReply } from "./email-inbound";
+import {
+  extractAddresses,
+  parseSenderAddress,
+  parseRecipientAlias,
+  classifyReply,
+  isSenderAuthenticated,
+} from "./email-inbound";
 
 describe("extractAddresses", () => {
   it("extracts a bare address", () => {
@@ -69,5 +75,33 @@ describe("classifyReply", () => {
 
   it("only looks at the first non-empty line, ignoring quoted history", () => {
     expect(classifyReply("\n\nYes\n\nOn Sep 20, kinroo.ai wrote:\n> cancel")).toBe("yes");
+  });
+});
+
+describe("isSenderAuthenticated", () => {
+  it("passes on SPF pass alone", () => {
+    expect(isSenderAuthenticated("pass", "none")).toBe(true);
+  });
+
+  it("passes on a DKIM pass alone", () => {
+    expect(isSenderAuthenticated("fail", "{@example.com : pass}")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isSenderAuthenticated("PASS", null)).toBe(true);
+    expect(isSenderAuthenticated(null, "{@example.com : PASS}")).toBe(true);
+  });
+
+  it("fails when both SPF and DKIM fail", () => {
+    expect(isSenderAuthenticated("fail", "{@example.com : fail}")).toBe(false);
+  });
+
+  it("fails when both are missing", () => {
+    expect(isSenderAuthenticated(null, null)).toBe(false);
+  });
+
+  it("treats softfail/neutral/none as not passing", () => {
+    expect(isSenderAuthenticated("softfail", "none")).toBe(false);
+    expect(isSenderAuthenticated("neutral", null)).toBe(false);
   });
 });

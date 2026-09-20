@@ -5,7 +5,12 @@ import { parseInput } from "@/lib/parse";
 import { getUserSettings } from "@/lib/user-settings";
 import { applyEventAction, type EventAction } from "@/lib/google-calendar";
 import { sendEmail, confirmReplyAddress } from "@/lib/email";
-import { parseSenderAddress, parseRecipientAlias, classifyReply } from "@/lib/email-inbound";
+import {
+  parseSenderAddress,
+  parseRecipientAlias,
+  classifyReply,
+  isSenderAuthenticated,
+} from "@/lib/email-inbound";
 
 const PENDING_ACTION_TTL_MS = 24 * 60 * 60_000;
 
@@ -60,12 +65,24 @@ export async function POST(request: Request) {
   const from = String(form.get("from") ?? "");
   const subject = String(form.get("subject") ?? "");
   const text = String(form.get("text") ?? "");
+  const spf = form.get("SPF") ? String(form.get("SPF")) : null;
+  const dkim = form.get("dkim") ? String(form.get("dkim")) : null;
 
   const alias = parseRecipientAlias(to);
   const senderAddress = parseSenderAddress(from);
   // Not addressed to one of our aliases, or no readable sender — 200 so
   // SendGrid doesn't retry a message we were never going to act on.
   if (!alias || !senderAddress) return Response.json({ ok: true });
+
+  // The webhook secret only proves this request came from SendGrid — it
+  // says nothing about whether the "From" header is real. Reject a claimed
+  // sender that fails both SPF and DKIM the same way as an unregistered
+  // sender: silently, so a forged address doesn't get a reply confirming
+  // it reached a live account.
+  if (!isSenderAuthenticated(spf, dkim)) {
+    console.warn(`[email/inbound] rejected unauthenticated sender ${senderAddress} (SPF=${spf}, dkim=${dkim})`);
+    return Response.json({ ok: true });
+  }
 
   const userId = await resolveUserId(senderAddress);
   // Unregistered sender — no reply, so as not to confirm to a stranger that
