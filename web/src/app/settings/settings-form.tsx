@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface SettingsValues {
   timezone: string;
@@ -9,10 +9,41 @@ interface SettingsValues {
   confirmBeforeWrite: boolean;
 }
 
+interface CalendarOption {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
 export function SettingsForm({ initial }: { initial: SettingsValues }) {
   const [values, setValues] = useState(initial);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [calendars, setCalendars] = useState<CalendarOption[] | null>(null);
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/calendars", { credentials: "same-origin" })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.status === 403) {
+          const body = await res.json().catch(() => ({}));
+          if (body.error === "insufficient_scope") setNeedsReconnect(true);
+          return;
+        }
+        if (!res.ok) return; // best-effort — fall back to the plain text field
+        const body = await res.json();
+        setCalendars(body.calendars);
+      })
+      .catch(() => {
+        // Network failure or similar — same silent fallback as a non-OK
+        // response above.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,6 +72,14 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
       setError(err instanceof Error ? err.message : "Could not save settings");
     }
   }
+
+  // The saved value might not be in the fetched list (a custom ID typed in
+  // before this picker existed, or before reconnecting) — keep it
+  // selectable rather than silently swapping it out from under the user.
+  const calendarOptions =
+    calendars && !calendars.some((c) => c.id === values.defaultCalendarId)
+      ? [...calendars, { id: values.defaultCalendarId, summary: values.defaultCalendarId, primary: false }]
+      : calendars;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -71,16 +110,33 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">Calendar ID</span>
-        <input
-          type="text"
-          value={values.defaultCalendarId}
-          onChange={(e) => setValues((v) => ({ ...v, defaultCalendarId: e.target.value }))}
-          placeholder="primary"
-          className="rounded border border-gray-300 px-3 py-2"
-        />
+        <span className="font-medium">Calendar</span>
+        {calendarOptions ? (
+          <select
+            value={values.defaultCalendarId}
+            onChange={(e) => setValues((v) => ({ ...v, defaultCalendarId: e.target.value }))}
+            className="rounded border border-gray-300 px-3 py-2"
+          >
+            {calendarOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.summary}
+                {c.primary ? " (primary)" : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={values.defaultCalendarId}
+            onChange={(e) => setValues((v) => ({ ...v, defaultCalendarId: e.target.value }))}
+            placeholder="primary"
+            className="rounded border border-gray-300 px-3 py-2"
+          />
+        )}
         <span className="text-xs text-gray-500">
-          Which Google Calendar to read/write. &quot;primary&quot; is your main calendar.
+          {needsReconnect
+            ? 'Reconnect the extension (sign out, then "Connect Google Calendar" again) to pick from your calendars directly — for now, enter an ID manually. "primary" is your main calendar.'
+            : "Which Google Calendar to read/write."}
         </span>
       </label>
 

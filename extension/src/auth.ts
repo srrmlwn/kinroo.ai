@@ -2,6 +2,12 @@ import { getConfig } from "./config";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
+  // Lets the settings page list the user's actual calendars to pick from
+  // instead of asking for a raw calendar ID — deliberately the read-only,
+  // list-only scope (not the broader `calendar`/`calendar.calendarlist`
+  // scopes, which also grant calendar management), consistent with
+  // SPEC.md's minimal-scope approach.
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "openid",
   "email",
 ].join(" ");
