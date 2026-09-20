@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { requireUser } from "@/lib/require-user";
 
-// Lets the popup check "am I connected, and as whom" without decoding the
+// Lets the panel check "am I connected, and as whom" without decoding the
 // JWT client-side or re-running OAuth.
 export async function GET(request: Request) {
   const auth = await requireUser(request);

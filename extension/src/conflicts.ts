@@ -5,7 +5,7 @@ import type { EditableAction } from "./types";
 // of the "create" rows in one call, then flags per-row overlaps
 // client-side. "update"/"delete" rows are left alone — they operate on an
 // event that's already on the calendar, so it isn't a useful "conflict"
-// with itself. Shared by the popup and the right-click context-menu flow,
+// with itself. Shared by the panel and the right-click context-menu flow,
 // which both build a confirm list from parsed actions. A failure here
 // (offline, expired session) must never block confirming — the write path
 // doesn't depend on it.

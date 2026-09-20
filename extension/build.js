@@ -11,12 +11,12 @@ fs.copyFileSync(
   path.join(outdir, "manifest.json"),
 );
 fs.copyFileSync(
-  path.join(__dirname, "src/popup/popup.html"),
-  path.join(outdir, "popup.html"),
+  path.join(__dirname, "src/panel/panel.html"),
+  path.join(outdir, "panel.html"),
 );
 fs.copyFileSync(
-  path.join(__dirname, "src/popup/popup.css"),
-  path.join(outdir, "popup.css"),
+  path.join(__dirname, "src/panel/panel.css"),
+  path.join(outdir, "panel.css"),
 );
 
 fs.mkdirSync(path.join(outdir, "icons"), { recursive: true });
@@ -40,7 +40,7 @@ fs.copyFileSync(path.join(__dirname, configSrc), path.join(outdir, "config.json"
 
 const buildOptions = {
   entryPoints: {
-    popup: path.join(__dirname, "src/popup/popup.ts"),
+    panel: path.join(__dirname, "src/panel/panel.ts"),
     background: path.join(__dirname, "src/background/background.ts"),
   },
   bundle: true,

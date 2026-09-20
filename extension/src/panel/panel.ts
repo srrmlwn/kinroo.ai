@@ -1,21 +1,57 @@
 import { clearSession, getSessionToken } from "../auth";
-import { getMe, parseText, parseFile, applyActions, requestHandoffToken, ApiError } from "../api";
+import {
+  getMe,
+  parseText,
+  parseFile,
+  applyActions,
+  requestHandoffToken,
+  getEvents,
+  getSettings,
+  ApiError,
+} from "../api";
 import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
-import type { EventAction, EditableAction, ParseResponse } from "../types";
+import type { EventAction, EditableAction, ParseResponse, CalendarEvent, CreateEventsResponse } from "../types";
 
 type View =
   | { kind: "loading" }
   | { kind: "unauthenticated"; error?: string }
-  | { kind: "ready"; email: string; pendingFile?: File; busy?: boolean; notice?: string }
+  | {
+      kind: "ready";
+      email: string;
+      pendingFile?: File;
+      busy?: boolean;
+      notice?: string;
+      undo?: EventAction[];
+      calendarLabel?: string;
+      upcomingEvents?: CalendarEvent[];
+      upcomingLoading?: boolean;
+    }
   | { kind: "confirming"; email: string; actions: EditableAction[]; busy?: boolean; error?: string }
   | { kind: "answer"; email: string; text: string };
 
 let state: View = { kind: "loading" };
 let inputText = "";
 
+// Cached across ready-state re-entries within one panel session — the
+// default calendar rarely changes and re-fetching it on every confirm would
+// just be wasted latency; upcoming events are still refetched each time
+// (see enterReady) since a write can change them.
+let cachedCalendarLabel: string | undefined;
+let cachedUpcoming: CalendarEvent[] | undefined;
+
+// The image thumbnail in the file-chip needs an object URL, which must be
+// revoked when replaced or removed or it leaks for the life of the panel.
+let pendingFileThumbUrl: string | null = null;
+function revokeThumb() {
+  if (pendingFileThumbUrl) {
+    URL.revokeObjectURL(pendingFileThumbUrl);
+    pendingFileThumbUrl = null;
+  }
+}
+
 const root = document.getElementById("root");
-if (!root) throw new Error("popup root element missing");
+if (!root) throw new Error("panel root element missing");
 
 function setState(next: View) {
   state = next;
@@ -23,12 +59,17 @@ function setState(next: View) {
   render();
 }
 
-// The popup is a transient Chrome action popup: it's destroyed on any focus
-// loss (switching tabs, clicking another window), not just during OAuth.
-// So anything worth not losing mid-compose gets mirrored to storage here and
-// restored in init() when the popup is reopened. pendingFile (a File) can't
-// be serialized, so an attached-but-unparsed file is the one thing this
-// doesn't cover — everything after parsing (actions, answers) does.
+// The side panel persists across tab switches and ordinary focus loss
+// (unlike the old action popup, which Chrome destroyed on any click
+// elsewhere) — but it can still be closed by the user, reloaded during
+// development, or lost on a browser restart. So anything worth not losing
+// mid-compose is mirrored to storage here and restored in init() when the
+// panel is (re)opened. pendingFile (a File) can't be serialized, so an
+// attached-but-unparsed file is the one thing this doesn't cover —
+// everything after parsing (actions, answers) does. Ephemeral, re-fetchable
+// state (notice, undo, calendarLabel, upcomingEvents) is deliberately left
+// out — restoring a stale "Undone." notice or a stale undo action would be
+// actively misleading.
 function persistDraft(view: View) {
   let payload: unknown = null;
   if (view.kind === "confirming") {
@@ -88,11 +129,10 @@ function escapeAttr(text: string): string {
 }
 
 // Best-effort: pre-fill the compose box with whatever's selected on the
-// page you were looking at when you opened the popup, so the common case
-// (select a line, click the icon, hit Go) doesn't require the right-click
-// menu at all. activeTab makes this a one-off, no standing host access.
-// Fails silently on chrome://, the Chrome Web Store, PDFs, etc. — those
-// just get a blank compose box.
+// page you were looking at, so the common case (select a line, open the
+// panel, hit Go) doesn't require the right-click menu. activeTab makes this
+// a one-off, no standing host access. Fails silently on chrome://, the
+// Chrome Web Store, PDFs, etc. — those just get a blank compose box.
 async function readPageSelection(): Promise<string> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -106,6 +146,27 @@ async function readPageSelection(): Promise<string> {
     return "";
   }
 }
+
+// Since the panel now stays open across tab switches instead of reopening
+// fresh each time (see the persistDraft comment above), a plain "read the
+// selection once in init()" would miss a selection made after the panel was
+// already open. This re-checks on tab activity, but only refills an
+// otherwise-untouched compose box — never overwrites something the user is
+// mid-typing or a file they've attached.
+async function maybeRefreshSelection(): Promise<void> {
+  if (state.kind !== "ready" || inputText.trim() || state.pendingFile) return;
+  const selection = await readPageSelection();
+  if (selection && state.kind === "ready" && !inputText.trim() && !state.pendingFile) {
+    inputText = selection;
+    setState({ ...state });
+  }
+}
+chrome.tabs.onActivated.addListener(() => {
+  maybeRefreshSelection();
+});
+chrome.tabs.onUpdated.addListener((_tabId, info) => {
+  if (info.status === "complete") maybeRefreshSelection();
+});
 
 // Explicit, on-demand full-page scan — a separate action ("Detect events on
 // this page") rather than something that silently prefills the compose box,
@@ -129,6 +190,66 @@ async function scanPageText(): Promise<string> {
   }
 }
 
+const UPCOMING_WINDOW_DAYS = 14;
+const UPCOMING_LIMIT = 5;
+
+async function fetchUpcoming(): Promise<CalendarEvent[]> {
+  const now = new Date();
+  const end = new Date(now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const { events } = await getEvents(now.toISOString(), end.toISOString());
+  return events.slice(0, UPCOMING_LIMIT);
+}
+
+async function fetchCalendarLabel(): Promise<string> {
+  try {
+    const { defaultCalendarId } = await getSettings();
+    return defaultCalendarId === "primary" ? "Primary calendar" : defaultCalendarId;
+  } catch {
+    return "";
+  }
+}
+
+async function loadUpcoming(email: string): Promise<void> {
+  try {
+    const events = await fetchUpcoming();
+    cachedUpcoming = events;
+    if (state.kind === "ready" && state.email === email) {
+      setState({ ...state, upcomingEvents: events, upcomingLoading: false });
+    }
+  } catch (err) {
+    console.error("[kinroo] failed to load upcoming events", err);
+    if (state.kind === "ready" && state.email === email) {
+      setState({ ...state, upcomingEvents: [], upcomingLoading: false });
+    }
+  }
+}
+
+async function loadCalendarLabel(email: string): Promise<void> {
+  const label = await fetchCalendarLabel();
+  cachedCalendarLabel = label;
+  if (state.kind === "ready" && state.email === email && label) {
+    setState({ ...state, calendarLabel: label });
+  }
+}
+
+// Single entry point for landing on the ready view — used on connect,
+// after a confirm/undo round-trip, and when backing out of confirm/answer —
+// so upcoming events and the calendar label are always kept current rather
+// than duplicated at every call site.
+function enterReady(email: string, opts?: { notice?: string; undo?: EventAction[] }): void {
+  setState({
+    kind: "ready",
+    email,
+    notice: opts?.notice,
+    undo: opts?.undo,
+    calendarLabel: cachedCalendarLabel,
+    upcomingEvents: cachedUpcoming,
+    upcomingLoading: cachedUpcoming === undefined,
+  });
+  if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
+  loadUpcoming(email);
+}
+
 async function init() {
   const token = await getSessionToken();
   if (!token) {
@@ -150,7 +271,7 @@ async function init() {
     if (!inputText) {
       inputText = await readPageSelection();
     }
-    setState({ kind: "ready", email: me.email });
+    enterReady(me.email);
   } catch {
     await clearSession();
     setState({ kind: "unauthenticated" });
@@ -161,11 +282,11 @@ async function handleConnect() {
   setState({ kind: "loading" });
   try {
     // Runs in the background worker, not here — chrome.identity's consent
-    // window steals focus, and Chrome would close this popup (killing an
-    // in-popup fetch/storage.set) before the flow finished.
+    // window steals focus, and running it there keeps sign-in independent
+    // of whether this panel document is even open (see background.ts).
     const result = await chrome.runtime.sendMessage({ type: "connect-google" });
     if (!result?.ok) throw new Error(result?.error ?? "Sign-in failed");
-    setState({ kind: "ready", email: result.email });
+    enterReady(result.email);
   } catch (err) {
     setState({
       kind: "unauthenticated",
@@ -176,6 +297,8 @@ async function handleConnect() {
 
 async function handleSignOut() {
   await clearSession();
+  cachedCalendarLabel = undefined;
+  cachedUpcoming = undefined;
   setState({ kind: "unauthenticated" });
 }
 
@@ -276,7 +399,7 @@ async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
 
 // Fires after a start/end edit; the row already re-rendered without a
 // conflict badge, this fills it back in once the check comes back. Guards
-// on view kind since the popup may have moved on (confirm/cancel) by then.
+// on view kind since the panel may have moved on (confirm/cancel) by then.
 function recheckConflicts(actions: EditableAction[]): void {
   annotateConflicts(actions).then((annotated) => {
     if (state.kind === "confirming") setState({ ...state, actions: annotated });
@@ -288,6 +411,51 @@ function recheckConflicts(actions: EditableAction[]): void {
 function withCandidatePatch(action: EventAction, patch: { title?: string; start?: string; end?: string }): EventAction {
   if (action.type === "delete") return action;
   return { ...action, candidate: { ...action.candidate, ...patch } };
+}
+
+// Builds the inverse of each just-applied action so a single "Undo" click
+// can reuse the exact same applyActions()/api/events round-trip rather than
+// a dedicated undo endpoint. A create's undo is a delete of the event Google
+// just handed back; an update's undo restores the pre-edit fields we
+// already had client-side (action.original); a delete's undo recreates the
+// event from those same fields — necessarily lossy (Google's own id,
+// recurrence, etc. are gone), but a close approximation is better than none,
+// and Google's own Calendar trash still covers a truly precise recovery.
+function buildUndoActions(selected: EditableAction[], results: CreateEventsResponse["events"]): EventAction[] {
+  const undo: EventAction[] = [];
+  selected.forEach((item, i) => {
+    const result = results[i];
+    if (!result?.ok) return;
+    const { action } = item;
+    if (action.type === "create") {
+      if (!result.event) return;
+      undo.push({ type: "delete", eventId: result.event.id, original: result.event });
+    } else if (action.type === "update") {
+      undo.push({
+        type: "update",
+        eventId: action.eventId,
+        original: result.event ?? action.original,
+        candidate: {
+          title: action.original.title,
+          start: action.original.start,
+          end: action.original.end,
+          location: action.original.location,
+          timezone: action.candidate.timezone,
+        },
+      });
+    } else {
+      undo.push({
+        type: "create",
+        candidate: {
+          title: action.original.title,
+          start: action.original.start,
+          end: action.original.end,
+          location: action.original.location,
+        },
+      });
+    }
+  });
+  return undo;
 }
 
 async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
@@ -311,7 +479,11 @@ async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
         : selected[0].action.type === "update"
           ? "Updated"
           : "Added";
-    setState({ kind: "ready", email: current.email, notice: `${verb} ${selected.length} event(s).` });
+    const undo = buildUndoActions(selected, result.events);
+    enterReady(current.email, {
+      notice: `${verb} ${selected.length} event(s).`,
+      undo: undo.length > 0 ? undo : undefined,
+    });
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       await clearSession();
@@ -326,6 +498,17 @@ async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
   }
 }
 
+async function handleUndo(current: Extract<View, { kind: "ready" }>) {
+  if (!current.undo?.length) return;
+  setState({ ...current, busy: true });
+  try {
+    await applyActions(current.undo);
+    enterReady(current.email, { notice: "Undone." });
+  } catch (err) {
+    handleApiErrorOrElse(current, err);
+  }
+}
+
 function renderUnauthenticated(view: Extract<View, { kind: "unauthenticated" }>): string {
   return `
     <p class="lead">Turn plain English into Google Calendar events.</p>
@@ -334,7 +517,47 @@ function renderUnauthenticated(view: Extract<View, { kind: "unauthenticated" }>)
   `;
 }
 
+const EXAMPLE_PROMPTS = [
+  "What's on Saturday?",
+  "Doctor's appointment at 9am tomorrow",
+  "Cancel my dentist appointment",
+];
+
+function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
+  const body = view.upcomingLoading
+    ? `<p class="upcoming-empty">Loading…</p>`
+    : !view.upcomingEvents?.length
+      ? `<p class="upcoming-empty">Nothing on your calendar for the next two weeks.</p>`
+      : view.upcomingEvents
+          .map(
+            (event) => `
+        <div class="upcoming-item">
+          <span class="upcoming-item-title">${escapeHtml(event.title)}</span>
+          <span class="upcoming-item-time">${escapeHtml(formatEventTime(event.start, event.end))}</span>
+        </div>`,
+          )
+          .join("");
+  return `
+    <div class="upcoming">
+      <p class="upcoming-heading">Upcoming</p>
+      ${body}
+      <a id="open-calendar" class="calendar-link" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar ↗</a>
+    </div>
+  `;
+}
+
 function renderReady(view: Extract<View, { kind: "ready" }>): string {
+  const fileChip = view.pendingFile
+    ? `<div class="file-chip">
+         ${view.pendingFile.type.startsWith("image/") ? `<img id="file-thumb" class="file-thumb" alt="" />` : ""}
+         <span class="file-name">${escapeHtml(view.pendingFile.name)}</span>
+         <button id="remove-file" class="link">remove</button>
+       </div>`
+    : `<label class="file-label">
+         <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" ${view.busy ? "disabled" : ""} />
+         Attach a screenshot, photo, or PDF, or drag one in
+       </label>`;
+
   return `
     <div class="account-row">
       <span class="email">${escapeHtml(view.email)}</span>
@@ -343,18 +566,25 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
         <button id="signout" class="link">Sign out</button>
       </span>
     </div>
-    ${view.notice ? `<p class="notice">${escapeHtml(view.notice)}</p>` : ""}
-    <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+    ${view.calendarLabel ? `<p class="calendar-indicator">→ ${escapeHtml(view.calendarLabel)}</p>` : ""}
     ${
-      view.pendingFile
-        ? `<div class="file-chip">${escapeHtml(view.pendingFile.name)} <button id="remove-file" class="link">remove</button></div>`
-        : `<label class="file-label">
-             <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" ${view.busy ? "disabled" : ""} />
-             Attach a screenshot, photo, or PDF
-           </label>`
+      view.notice
+        ? `<div class="notice-row">
+             <p class="notice">${escapeHtml(view.notice)}</p>
+             ${view.undo?.length ? `<button id="undo" class="link">Undo</button>` : ""}
+           </div>`
+        : ""
     }
+    <div id="compose" class="compose">
+      <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+      ${fileChip}
+      <div class="chips">
+        ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+      </div>
+    </div>
     <button id="submit" class="primary" ${view.busy ? "disabled" : ""}>${view.busy ? "Working…" : "Go"}</button>
     <button id="detect-page" class="link detect-page" ${view.busy ? "disabled" : ""}>Detect events on this page</button>
+    ${renderUpcoming(view)}
   `;
 }
 
@@ -539,6 +769,13 @@ function render() {
   attachHandlers();
 }
 
+function autoResizeTextarea(el: HTMLTextAreaElement): void {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
+
 function attachHandlers() {
   if (state.kind === "unauthenticated") {
     document.getElementById("connect")?.addEventListener("click", handleConnect);
@@ -550,14 +787,32 @@ function attachHandlers() {
     document.getElementById("settings")?.addEventListener("click", () => handleOpenSettings(current));
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
     document.getElementById("detect-page")?.addEventListener("click", () => handleDetectPage(current));
+    document.getElementById("undo")?.addEventListener("click", () => handleUndo(current));
     document.getElementById("remove-file")?.addEventListener("click", () => {
+      revokeThumb();
       setState({ ...current, pendingFile: undefined });
     });
 
+    const thumb = document.getElementById("file-thumb") as HTMLImageElement | null;
+    if (thumb && current.pendingFile) {
+      revokeThumb();
+      pendingFileThumbUrl = URL.createObjectURL(current.pendingFile);
+      thumb.src = pendingFileThumbUrl;
+    }
+
     const textInput = document.getElementById("text-input") as HTMLTextAreaElement | null;
+    if (textInput) autoResizeTextarea(textInput);
     textInput?.addEventListener("input", (e) => {
-      inputText = (e.target as HTMLTextAreaElement).value;
+      const el = e.target as HTMLTextAreaElement;
+      inputText = el.value;
+      autoResizeTextarea(el);
       persistDraft(state);
+    });
+    textInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSubmit(current);
+      }
     });
     textInput?.addEventListener("paste", (e) => {
       const items = e.clipboardData?.items;
@@ -568,6 +823,7 @@ function attachHandlers() {
           const file = item.getAsFile();
           if (file) {
             e.preventDefault();
+            revokeThumb();
             setState({ ...current, pendingFile: file });
           }
           return;
@@ -578,14 +834,54 @@ function attachHandlers() {
     const fileInput = document.getElementById("file-input") as HTMLInputElement | null;
     fileInput?.addEventListener("change", () => {
       const file = fileInput.files?.[0];
-      if (file) setState({ ...current, pendingFile: file });
+      if (file) {
+        revokeThumb();
+        setState({ ...current, pendingFile: file });
+      }
     });
+
+    document.querySelectorAll<HTMLButtonElement>(".chip").forEach((el) => {
+      el.addEventListener("click", () => {
+        inputText = el.textContent ?? "";
+        if (textInput) {
+          textInput.value = inputText;
+          autoResizeTextarea(textInput);
+          textInput.focus();
+        }
+        persistDraft(state);
+      });
+    });
+
+    const compose = document.getElementById("compose");
+    if (compose && !current.busy) {
+      let dragDepth = 0;
+      compose.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dragDepth += 1;
+        compose.classList.add("drag-active");
+      });
+      compose.addEventListener("dragover", (e) => e.preventDefault());
+      compose.addEventListener("dragleave", () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) compose.classList.remove("drag-active");
+      });
+      compose.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dragDepth = 0;
+        compose.classList.remove("drag-active");
+        const file = e.dataTransfer?.files?.[0];
+        if (file && ACCEPTED_FILE_TYPES.includes(file.type)) {
+          revokeThumb();
+          setState({ ...current, pendingFile: file });
+        }
+      });
+    }
   }
 
   if (state.kind === "confirming") {
     const current = state;
     document.getElementById("cancel")?.addEventListener("click", () => {
-      setState({ kind: "ready", email: current.email });
+      enterReady(current.email);
     });
     document.getElementById("confirm")?.addEventListener("click", () => handleConfirm(current));
 
@@ -644,7 +940,7 @@ function attachHandlers() {
   if (state.kind === "answer") {
     const current = state;
     document.getElementById("new-query")?.addEventListener("click", () => {
-      setState({ kind: "ready", email: current.email });
+      enterReady(current.email);
     });
   }
 }

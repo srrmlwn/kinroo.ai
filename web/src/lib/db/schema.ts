@@ -61,7 +61,7 @@ export const emailIdentities = pgTable("email_identities", {
 
 // A create/update/delete parsed from an inbound email, held for the
 // reply-to-confirm flow (lib/email.ts, api/email/inbound) rather than
-// written immediately — confirm-before-write is a hard rule with no popup
+// written immediately — confirm-before-write is a hard rule with no panel
 // UI available over email. `action` is an EventAction (see
 // google-calendar.ts); stored as jsonb since it's a small write-once queue,
 // not data anything else queries by field.
