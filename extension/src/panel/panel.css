@@ -235,9 +235,9 @@ textarea:focus {
    toolbar — bigger than the header's icon-btn, which is secondary and
    space-constrained. */
 .compose-toolbar-left .icon-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
 }
 
 .send-btn {
