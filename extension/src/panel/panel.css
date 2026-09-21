@@ -95,7 +95,6 @@ button {
 }
 
 .icon-btn svg,
-.scan-badge svg,
 .send-btn svg {
   width: 15px;
   height: 15px;
@@ -239,23 +238,6 @@ textarea:focus {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-}
-
-.scan-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 44px;
-  padding: 0 12px 0 8px;
-  border: none;
-  border-radius: 22px;
-  background: var(--surface);
-  color: var(--muted-2);
-  font-size: 11px;
-}
-
-.scan-badge:hover:not(:disabled) {
-  color: var(--fg);
 }
 
 .send-btn {
