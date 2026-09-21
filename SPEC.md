@@ -129,7 +129,7 @@ Because Google Calendar is the real backend, "family" can eventually mean *a Goo
 
 A single logo design (a rounded blue square, a minimal calendar card, and a small four-point spark accent overlapping its top-right corner) is shared across the extension's toolbar icon (`extension/icons/`, generated at 16/32/48/128px), the extension's favicon-equivalent (`web/src/app/icon.svg`), and the landing page (`web/src/app/page.tsx`'s inline `Logo` component). All three must stay in visual sync — a change to one should be mirrored in the others rather than left to drift.
 
-The landing page (`web/`, served at the root route) is marketing-only: no login, no app functionality. It states what the product does, links to nothing functional yet (the extension isn't published), and exists to have a real front door once there is one.
+The landing page (`web/`, served at the root route) is marketing-only: no login, no app functionality. It states what the product does, links to nothing functional yet (the extension isn't published), and exists to have a real front door once there is one. It embeds a short looping demo (`web/public/demo/`) of the actual side panel — compose, confirm, added — captured from the real built extension (headless Chromium driving the genuine app code against stubbed API responses, not a mockup), framed in a browser-chrome-style card matching the rest of the page's design.
 
 ## Auth flow
 
