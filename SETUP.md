@@ -71,7 +71,7 @@ Set `googleClientId` to the Client ID from step 2. Leave `apiBase` as `http://lo
 cd web && npm run db:migrate
 ```
 
-This applies `web/drizzle/0000_*.sql` and `0001_*.sql` (already generated from the schema) to your Neon database — creates `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`.
+This applies `web/drizzle/0000_*.sql` through `0002_*.sql` (already generated from the schema) to your Neon database — creates `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`, `waitlist_signups`.
 
 ## 8. Run it
 
