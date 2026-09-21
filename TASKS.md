@@ -3,7 +3,8 @@
 Tracks implementation against `SPEC.md`. All code-side tasks are done, including the follow-on features below. It's been manually verified once locally with real credentials (`SETUP.md`), and a Vercel project + domain now exist — but production env vars aren't set yet, so nothing has actually run at `https://kinroo.ai` end-to-end.
 
 ## Backend (`web/`)
-- [x] Drizzle schema + config: `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`
+- [x] Drizzle schema + config: `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`, `waitlist_signups`
+- [x] `POST /api/waitlist` — pre-launch email capture for the landing page hero, no auth, duplicate-safe insert
 - [x] Token encryption helper (AES-256-GCM) for `oauth_tokens`
 - [x] Session token helper (JWT sign/verify via `jose`)
 - [x] `POST /api/auth/google/exchange` — code → tokens → user upsert → session JWT
@@ -37,7 +38,9 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 ## Web landing page (`web/`)
 - [x] Redesigned marketing page (`web/src/app/page.tsx`) reflecting the full feature set (compose, ask, edit/cancel, recurring, conflicts, page-detect)
 - [x] Shared logo/icon design across extension icons, `web/src/app/icon.svg`, and the landing page
-- [x] Looping demo video of the real side panel (compose → confirm → added) embedded on the landing page, framed to match the site's card/border design
+- [x] Dark "command tool" redesign scoped to the landing page only (hero rewrite, input→output transformation chip, tactile 01/02/03 step visuals, 6 feature cards consolidated into 3 pillars, trust-badge footer)
+- [x] Email waitlist form in the hero, wired to `POST /api/waitlist`
+- [x] Tabbed demo showcase — 3 looping clips (Text Prompt / Flyer Scan / Page Detection) of the real side panel, all captured from the actual built extension (headless Chromium driving the genuine app code against stubbed API responses — including a real synthetic flyer image upload and a real second-tab page-scan — not mockups or an AI-generated video)
 
 ## Verification
 - [x] `npm run typecheck` / `npm run build` clean across both workspaces

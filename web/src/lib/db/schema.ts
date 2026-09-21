@@ -79,6 +79,17 @@ export const pendingEmailActions = pgTable("pending_email_actions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
+// Landing-page waitlist — deliberately outside the users/oauth_tokens graph
+// (no userId, no auth): this is a pre-signup marketing capture, not part of
+// the product's own data model.
+export const waitlistSignups = pgTable("waitlist_signups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const llmCalls = pgTable("llm_calls", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
