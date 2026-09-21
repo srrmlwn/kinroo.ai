@@ -120,7 +120,7 @@ function WaitlistForm() {
         className="rounded-full border px-5 py-2.5 text-sm"
         style={{ borderColor: "rgba(37,99,235,0.4)", background: "rgba(37,99,235,0.1)", color: FG }}
       >
-        You&rsquo;re on the list — we&rsquo;ll email you when the beta opens.
+        You&rsquo;re on the list — we&rsquo;ll email you when there&rsquo;s news.
       </p>
     );
   }
@@ -143,7 +143,7 @@ function WaitlistForm() {
           className="rounded-full px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
           style={{ background: ACCENT }}
         >
-          {status === "loading" ? "Joining…" : "Join Private Beta"}
+          {status === "loading" ? "Joining…" : "Join the waitlist"}
         </button>
       </form>
       {status === "error" && <p className="text-xs text-red-400">Couldn&rsquo;t save that — try again?</p>}
