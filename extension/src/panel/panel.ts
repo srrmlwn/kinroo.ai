@@ -32,6 +32,18 @@ type View =
 
 let state: View = { kind: "loading" };
 let inputText = "";
+let avatarMenuOpen = false;
+
+// Minimal inline icons (Feather-style: 24x24, stroke=currentColor) — no
+// icon library dependency for a handful of glyphs.
+const ICON_ATTACH =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05L12.25 20.24a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
+const ICON_SEND =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const ICON_SCAN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V4a1 1 0 011-1h3"/><path d="M17 3h3a1 1 0 011 1v3"/><path d="M21 17v3a1 1 0 01-1 1h-3"/><path d="M7 21H4a1 1 0 01-1-1v-3"/></svg>';
+const ICON_SETTINGS =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2" fill="currentColor" stroke="none"/></svg>';
 
 // Cached across ready-state re-entries within one panel session — the
 // default calendar rarely changes and re-fetching it on every confirm would
@@ -94,6 +106,22 @@ function toDatetimeLocalValue(iso: string): string {
 
 function fromDatetimeLocalValue(value: string): string {
   return new Date(value).toISOString();
+}
+
+// "Today" / "Tomorrow" / "Mon 21" — used by the upcoming-events tiles, where
+// a full "Mon, Sep 21" date repeated five times in a row is just noise.
+function formatRelativeDay(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(date) - startOfDay(now)) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  return `${date.toLocaleDateString(undefined, { weekday: "short" })} ${date.getDate()}`;
+}
+
+function formatTimeBadge(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 function formatEventTime(start: string, end: string): string {
@@ -168,6 +196,16 @@ chrome.tabs.onUpdated.addListener((_tabId, info) => {
   if (info.status === "complete") maybeRefreshSelection();
 });
 
+// The avatar dropdown closes on any click outside it. Registered once at
+// module scope rather than per-render since it needs to catch clicks
+// anywhere in the document, not just inside the header.
+document.addEventListener("click", (e) => {
+  if (!avatarMenuOpen) return;
+  if ((e.target as Element | null)?.closest("#avatar-wrapper")) return;
+  avatarMenuOpen = false;
+  render();
+});
+
 // Explicit, on-demand full-page scan — a separate action ("Detect events on
 // this page") rather than something that silently prefills the compose box,
 // since dumping a whole page's text into a visible text field the user
@@ -237,6 +275,7 @@ async function loadCalendarLabel(email: string): Promise<void> {
 // so upcoming events and the calendar label are always kept current rather
 // than duplicated at every call site.
 function enterReady(email: string, opts?: { notice?: string; undo?: EventAction[] }): void {
+  avatarMenuOpen = false;
   setState({
     kind: "ready",
     email,
@@ -531,9 +570,10 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
       : view.upcomingEvents
           .map(
             (event) => `
-        <div class="upcoming-item">
+        <div class="upcoming-tile" title="${escapeAttr(formatEventTime(event.start, event.end))}">
+          <span class="upcoming-day">${escapeHtml(formatRelativeDay(event.start))}</span>
           <span class="upcoming-item-title">${escapeHtml(event.title)}</span>
-          <span class="upcoming-item-time">${escapeHtml(formatEventTime(event.start, event.end))}</span>
+          <span class="upcoming-time-badge">${escapeHtml(formatTimeBadge(event.start))}</span>
         </div>`,
           )
           .join("");
@@ -546,6 +586,28 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
   `;
 }
 
+// Rendered into the static #header-actions slot in panel.html (empty for
+// every other view) — an icon cluster instead of raw email/calendar text,
+// which used to cost ~30px of vertical space on every single screen.
+function renderHeaderActions(view: Extract<View, { kind: "ready" }>): string {
+  const initial = view.email.trim().charAt(0).toUpperCase() || "?";
+  return `
+    <button id="settings-icon" class="icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
+    <div id="avatar-wrapper" class="avatar-wrapper">
+      <button id="avatar-btn" class="avatar-btn" title="${escapeAttr(view.email)}" aria-label="Account">${escapeHtml(initial)}</button>
+      ${
+        avatarMenuOpen
+          ? `<div class="avatar-menu">
+               <div class="avatar-menu-email">${escapeHtml(view.email)}</div>
+               ${view.calendarLabel ? `<div class="avatar-menu-calendar">→ ${escapeHtml(view.calendarLabel)}</div>` : ""}
+               <button id="signout" class="avatar-menu-item">Sign out</button>
+             </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderReady(view: Extract<View, { kind: "ready" }>): string {
   const fileChip = view.pendingFile
     ? `<div class="file-chip">
@@ -553,20 +615,17 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
          <span class="file-name">${escapeHtml(view.pendingFile.name)}</span>
          <button id="remove-file" class="link">remove</button>
        </div>`
-    : `<label class="file-label">
-         <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" ${view.busy ? "disabled" : ""} />
-         Attach a screenshot, photo, or PDF, or drag one in
-       </label>`;
+    : "";
+
+  // Suggestions are only useful before you've started typing — once there's
+  // real input they'd just be dead weight competing with it.
+  const chips = inputText.trim()
+    ? ""
+    : `<div class="chips">
+         ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+       </div>`;
 
   return `
-    <div class="account-row">
-      <span class="email">${escapeHtml(view.email)}</span>
-      <span class="account-links">
-        <button id="settings" class="link">Settings</button>
-        <button id="signout" class="link">Sign out</button>
-      </span>
-    </div>
-    ${view.calendarLabel ? `<p class="calendar-indicator">→ ${escapeHtml(view.calendarLabel)}</p>` : ""}
     ${
       view.notice
         ? `<div class="notice-row">
@@ -576,14 +635,18 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
         : ""
     }
     <div id="compose" class="compose">
-      <textarea id="text-input" rows="3" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+      <textarea id="text-input" rows="2" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
       ${fileChip}
-      <div class="chips">
-        ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+      <div class="compose-toolbar">
+        <div class="compose-toolbar-left">
+          <button id="attach-btn" type="button" class="icon-btn" title="Attach a screenshot, photo, or PDF" aria-label="Attach a file" ${view.busy ? "disabled" : ""}>${ICON_ATTACH}</button>
+          <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden ${view.busy ? "disabled" : ""} />
+          <button id="scan-btn" type="button" class="scan-badge" ${view.busy ? "disabled" : ""}>${ICON_SCAN}<span>Scan page</span></button>
+        </div>
+        <button id="submit" type="button" class="send-btn" title="Send (Ctrl/Cmd+Enter)" aria-label="Send" ${view.busy ? "disabled" : ""}>${view.busy ? "…" : ICON_SEND}</button>
       </div>
+      ${chips}
     </div>
-    <button id="submit" class="primary" ${view.busy ? "disabled" : ""}>${view.busy ? "Working…" : "Go"}</button>
-    <button id="detect-page" class="link detect-page" ${view.busy ? "disabled" : ""}>Detect events on this page</button>
     ${renderUpcoming(view)}
   `;
 }
@@ -766,6 +829,9 @@ function render() {
       break;
   }
 
+  const headerActions = document.getElementById("header-actions");
+  if (headerActions) headerActions.innerHTML = state.kind === "ready" ? renderHeaderActions(state) : "";
+
   attachHandlers();
 }
 
@@ -784,9 +850,13 @@ function attachHandlers() {
   if (state.kind === "ready") {
     const current = state;
     document.getElementById("signout")?.addEventListener("click", handleSignOut);
-    document.getElementById("settings")?.addEventListener("click", () => handleOpenSettings(current));
+    document.getElementById("settings-icon")?.addEventListener("click", () => handleOpenSettings(current));
+    document.getElementById("avatar-btn")?.addEventListener("click", () => {
+      avatarMenuOpen = !avatarMenuOpen;
+      render();
+    });
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
-    document.getElementById("detect-page")?.addEventListener("click", () => handleDetectPage(current));
+    document.getElementById("scan-btn")?.addEventListener("click", () => handleDetectPage(current));
     document.getElementById("undo")?.addEventListener("click", () => handleUndo(current));
     document.getElementById("remove-file")?.addEventListener("click", () => {
       revokeThumb();
@@ -832,6 +902,7 @@ function attachHandlers() {
     });
 
     const fileInput = document.getElementById("file-input") as HTMLInputElement | null;
+    document.getElementById("attach-btn")?.addEventListener("click", () => fileInput?.click());
     fileInput?.addEventListener("change", () => {
       const file = fileInput.files?.[0];
       if (file) {

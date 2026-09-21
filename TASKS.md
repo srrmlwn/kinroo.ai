@@ -26,12 +26,12 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Panel (formerly an action popup, migrated to `chrome.sidePanel` — resizable, survives focus loss/tab switches): compose input (text) + file input/paste/drag-and-drop (image/pdf), auto-growing textarea, Cmd/Ctrl+Enter submit, example prompt chips
 - [x] Panel: confirm list UI (editable rows, accept/deselect, bulk write) covering create/update/delete rows
 - [x] Panel: query answer display
-- [x] Panel: "Detect events on this page" button — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior)
+- [x] Panel: "Scan page" action — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior)
 - [x] Panel: conflict detection — flags overlapping existing events on create rows before confirm, rechecked on edit
 - [x] Panel: connected/disconnected state handling, basic error states
-- [x] Panel: upcoming-events strip (next 5, `GET /api/events`) + "Open Google Calendar" link on the ready view
+- [x] Panel: upcoming-events strip (next 5, `GET /api/events`) as compact tiles — relative day labels + time badges — with an "Open Google Calendar" link
 - [x] Panel: one-click Undo after a confirm, reusing `applyActions`/`POST /api/events` with the inverse action(s)
-- [x] Panel: default-calendar indicator (`GET /api/settings`), dark mode via `prefers-color-scheme`
+- [x] Panel: "command card" layout — attach/scan/send controls inside the compose toolbar instead of separate full-width buttons, account details (email, default calendar, sign out) behind an avatar dropdown instead of on-screen text, dark mode via `prefers-color-scheme`
 - [x] Branding: icon (calendar + spark mark), applied across manifest/panel and the web landing page
 
 ## Web landing page (`web/`)
