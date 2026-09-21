@@ -37,6 +37,7 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 ## Web landing page (`web/`)
 - [x] Redesigned marketing page (`web/src/app/page.tsx`) reflecting the full feature set (compose, ask, edit/cancel, recurring, conflicts, page-detect)
 - [x] Shared logo/icon design across extension icons, `web/src/app/icon.svg`, and the landing page
+- [x] Looping demo video of the real side panel (compose → confirm → added) embedded on the landing page, framed to match the site's card/border design
 
 ## Verification
 - [x] `npm run typecheck` / `npm run build` clean across both workspaces

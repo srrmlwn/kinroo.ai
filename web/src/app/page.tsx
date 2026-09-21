@@ -68,6 +68,28 @@ export default function Home() {
       </section>
 
       <section className="mx-auto w-full max-w-3xl px-6 pb-16">
+        <div className="mx-auto max-w-xs overflow-hidden rounded-2xl border border-gray-200 shadow-lg dark:border-gray-800">
+          <div className="flex items-center gap-1.5 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+            <span className="h-2.5 w-2.5 rounded-full bg-gray-300 dark:bg-gray-700" />
+            <span className="h-2.5 w-2.5 rounded-full bg-gray-300 dark:bg-gray-700" />
+            <span className="h-2.5 w-2.5 rounded-full bg-gray-300 dark:bg-gray-700" />
+          </div>
+          <video
+            className="w-full"
+            src="/demo/panel-demo.webm"
+            poster="/demo/panel-demo-poster.jpg"
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+        </div>
+        <p className="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
+          The actual extension — type a request, review it, and it's on your calendar.
+        </p>
+      </section>
+
+      <section className="mx-auto w-full max-w-3xl px-6 pb-16">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {STEPS.map((step, i) => (
             <div
