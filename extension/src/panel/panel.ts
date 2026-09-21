@@ -621,8 +621,10 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   // real input they'd just be dead weight competing with it.
   const chips = inputText.trim()
     ? ""
-    : `<div class="chips">
-         ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+    : `<div class="chips-wrap">
+         <div class="chips">
+           ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+         </div>
        </div>`;
 
   return `
@@ -635,7 +637,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
         : ""
     }
     <div id="compose" class="compose">
-      <textarea id="text-input" rows="2" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+      <textarea id="text-input" rows="2" placeholder="Add an event or ask a question…" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
       ${fileChip}
       <div class="compose-toolbar">
         <div class="compose-toolbar-left">
