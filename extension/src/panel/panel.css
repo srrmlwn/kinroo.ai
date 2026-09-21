@@ -95,7 +95,6 @@ button {
 }
 
 .icon-btn svg,
-.scan-badge svg,
 .send-btn svg {
   width: 15px;
   height: 15px;
@@ -232,28 +231,21 @@ textarea:focus {
   gap: 2px;
 }
 
-.scan-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px 4px 7px;
-  border: none;
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--muted-2);
-  font-size: 11px;
-}
-
-.scan-badge:hover:not(:disabled) {
-  color: var(--fg);
+/* Comfortable tap targets for the utility tools that live in the compose
+   toolbar — bigger than the header's icon-btn, which is secondary and
+   space-constrained. */
+.compose-toolbar-left .icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
 }
 
 .send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border: none;
   border-radius: 50%;
   background: var(--accent);
@@ -265,13 +257,33 @@ textarea:focus {
   cursor: default;
 }
 
+.chips-wrap {
+  position: relative;
+  margin-top: 8px;
+}
+
+.chips-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--bg));
+  pointer-events: none;
+}
+
 .chips {
   display: flex;
   flex-wrap: nowrap;
   overflow-x: auto;
   gap: 6px;
-  margin-top: 8px;
-  padding-bottom: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
@@ -362,7 +374,10 @@ textarea:focus {
 
 .upcoming-day {
   flex-shrink: 0;
-  width: 52px;
+  width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);

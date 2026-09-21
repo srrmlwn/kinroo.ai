@@ -621,8 +621,10 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   // real input they'd just be dead weight competing with it.
   const chips = inputText.trim()
     ? ""
-    : `<div class="chips">
-         ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+    : `<div class="chips-wrap">
+         <div class="chips">
+           ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
+         </div>
        </div>`;
 
   return `
@@ -635,13 +637,13 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
         : ""
     }
     <div id="compose" class="compose">
-      <textarea id="text-input" rows="2" placeholder="Doctor's appointment at 9am tomorrow, 'cancel my dentist appointment', or ask 'what's on Saturday?'" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+      <textarea id="text-input" rows="2" placeholder="Add an event or ask a question…" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
       ${fileChip}
       <div class="compose-toolbar">
         <div class="compose-toolbar-left">
           <button id="attach-btn" type="button" class="icon-btn" title="Attach a screenshot, photo, or PDF" aria-label="Attach a file" ${view.busy ? "disabled" : ""}>${ICON_ATTACH}</button>
           <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden ${view.busy ? "disabled" : ""} />
-          <button id="scan-btn" type="button" class="scan-badge" ${view.busy ? "disabled" : ""}>${ICON_SCAN}<span>Scan page</span></button>
+          <button id="scan-btn" type="button" class="icon-btn" title="Scan current page for events" aria-label="Scan current page for events" ${view.busy ? "disabled" : ""}>${ICON_SCAN}</button>
         </div>
         <button id="submit" type="button" class="send-btn" title="Send (Ctrl/Cmd+Enter)" aria-label="Send" ${view.busy ? "disabled" : ""}>${view.busy ? "…" : ICON_SEND}</button>
       </div>
