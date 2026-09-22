@@ -3,13 +3,6 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-
-  /* Brand palette */
-  --brand-navy: #0b1220;
-  --brand-blue: #3b82f6;
-  --brand-teal: #14d8c6;
-  --brand-purple: #8b5cf6;
-  --brand-gray: #e5e7eb;
 }
 
 @theme inline {

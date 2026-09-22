@@ -1,33 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="bubble" x1="6" y1="4" x2="122" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#14D8C6"/>
-      <stop offset="0.55" stop-color="#3B82F6"/>
-      <stop offset="1" stop-color="#8B5CF6"/>
-    </linearGradient>
-  </defs>
-
-  <!-- antenna -->
-  <rect x="45" y="2" width="7" height="15" rx="3.5" fill="url(#bubble)"/>
-  <rect x="76" y="2" width="7" height="15" rx="3.5" fill="url(#bubble)"/>
-  <circle cx="48.5" cy="3" r="4.5" fill="url(#bubble)"/>
-  <circle cx="79.5" cy="3" r="4.5" fill="url(#bubble)"/>
-
-  <!-- speech-bubble tail -->
-  <path d="M34 108 C34 116 27 123 17 126 C25 118 27 111 29 104 Z" fill="url(#bubble)"/>
-
-  <!-- body -->
-  <rect x="8" y="10" width="112" height="98" rx="26" fill="url(#bubble)"/>
-
-  <!-- face plate -->
-  <rect x="27" y="33" width="74" height="56" rx="18" fill="#ffffff"/>
-
-  <!-- eyes -->
-  <circle cx="49" cy="59" r="7.5" fill="#0B1220"/>
-  <circle cx="79" cy="59" r="7.5" fill="#0B1220"/>
-  <circle cx="51.5" cy="56.5" r="2.2" fill="#ffffff"/>
-  <circle cx="81.5" cy="56.5" r="2.2" fill="#ffffff"/>
-
-  <!-- mouth -->
-  <rect x="52" y="74" width="24" height="7" rx="3.5" fill="#0B1220"/>
+  <rect width="128" height="128" rx="28" fill="#1a73e8"/>
+  <rect x="43" y="19" width="8" height="16" rx="4" fill="#ffffff"/>
+  <rect x="77" y="19" width="8" height="16" rx="4" fill="#ffffff"/>
+  <rect x="30" y="33" width="68" height="62" rx="10" fill="#ffffff"/>
+  <polygon points="99,17 102,25 110,28 102,31 99,39 96,31 88,28 96,25" fill="#ffffff"/>
 </svg>

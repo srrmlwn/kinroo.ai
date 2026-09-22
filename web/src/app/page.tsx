@@ -5,17 +5,12 @@ import { useState } from "react";
 // Colors are hardcoded here (not global CSS variables) deliberately — this
 // dark palette is specific to the marketing page. /settings and the rest of
 // the app keep their own light/auto theme untouched.
-//
-// Brand palette: navy/blue/teal/purple/gray (matches the mascot mark).
 const BG = "#09090b";
 const FG = "#f4f4f5";
 const MUTED = "#a1a1aa";
 const BORDER = "rgba(255,255,255,0.08)";
 const SURFACE = "rgba(255,255,255,0.03)";
-const ACCENT = "#3B82F6"; // brand blue
-const ACCENT_RGB = "59,130,246";
-const TEAL = "#14D8C6";
-const PURPLE = "#8B5CF6";
+const ACCENT = "#2563eb";
 
 const PILLARS: Array<{ title: string; tagline: string; description: string }> = [
   {
@@ -69,28 +64,13 @@ const DEMOS = [
 ];
 
 function Logo({ size = 28 }: { size?: number }) {
-  const gradientId = `kinroo-bubble-${size}`;
   return (
     <svg width={size} height={size} viewBox="0 0 128 128" aria-hidden="true">
-      <defs>
-        <linearGradient id={gradientId} x1="6" y1="4" x2="122" y2="120" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor={TEAL} />
-          <stop offset="0.55" stopColor={ACCENT} />
-          <stop offset="1" stopColor={PURPLE} />
-        </linearGradient>
-      </defs>
-      <rect x="45" y="2" width="7" height="15" rx="3.5" fill={`url(#${gradientId})`} />
-      <rect x="76" y="2" width="7" height="15" rx="3.5" fill={`url(#${gradientId})`} />
-      <circle cx="48.5" cy="3" r="4.5" fill={`url(#${gradientId})`} />
-      <circle cx="79.5" cy="3" r="4.5" fill={`url(#${gradientId})`} />
-      <path d="M34 108 C34 116 27 123 17 126 C25 118 27 111 29 104 Z" fill={`url(#${gradientId})`} />
-      <rect x="8" y="10" width="112" height="98" rx="26" fill={`url(#${gradientId})`} />
-      <rect x="27" y="33" width="74" height="56" rx="18" fill="#ffffff" />
-      <circle cx="49" cy="59" r="7.5" fill="#0B1220" />
-      <circle cx="79" cy="59" r="7.5" fill="#0B1220" />
-      <circle cx="51.5" cy="56.5" r="2.2" fill="#ffffff" />
-      <circle cx="81.5" cy="56.5" r="2.2" fill="#ffffff" />
-      <rect x="52" y="74" width="24" height="7" rx="3.5" fill="#0B1220" />
+      <rect width="128" height="128" rx="28" fill={ACCENT} />
+      <rect x="43" y="19" width="8" height="16" rx="4" fill="#ffffff" />
+      <rect x="77" y="19" width="8" height="16" rx="4" fill="#ffffff" />
+      <rect x="30" y="33" width="68" height="62" rx="10" fill="#ffffff" />
+      <polygon points="99,17 102,25 110,28 102,31 99,39 96,31 88,28 96,25" fill="#ffffff" />
     </svg>
   );
 }
@@ -106,7 +86,7 @@ function TransformChip() {
       </span>
       <span
         className="rounded-full border px-4 py-2 font-mono"
-        style={{ borderColor: `rgba(${ACCENT_RGB},0.4)`, background: `rgba(${ACCENT_RGB},0.1)`, color: FG }}
+        style={{ borderColor: "rgba(37,99,235,0.4)", background: "rgba(37,99,235,0.1)", color: FG }}
       >
         🦷 Dentist · Tue, Oct 14 · 3:00 PM
       </span>
@@ -138,7 +118,7 @@ function WaitlistForm() {
     return (
       <p
         className="rounded-full border px-5 py-2.5 text-sm"
-        style={{ borderColor: `rgba(${ACCENT_RGB},0.4)`, background: `rgba(${ACCENT_RGB},0.1)`, color: FG }}
+        style={{ borderColor: "rgba(37,99,235,0.4)", background: "rgba(37,99,235,0.1)", color: FG }}
       >
         You&rsquo;re on the list — we&rsquo;ll email you when there&rsquo;s news.
       </p>
@@ -193,7 +173,7 @@ function DemoShowcase() {
       <div className="relative">
         <div
           className="pointer-events-none absolute -inset-8 -z-10 rounded-full blur-3xl"
-          style={{ background: `rgba(${ACCENT_RGB},0.2)` }}
+          style={{ background: "rgba(37,99,235,0.2)" }}
           aria-hidden="true"
         />
         <div className="mx-auto max-w-xs overflow-hidden rounded-2xl border bg-black shadow-2xl" style={{ borderColor: BORDER }}>

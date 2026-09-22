@@ -148,7 +148,7 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
       <button
         type="submit"
         disabled={status === "saving"}
-        className="rounded bg-[#3B82F6] px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+        className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
         {status === "saving" ? "Saving…" : "Save"}
       </button>
