@@ -5,12 +5,15 @@ import { useState } from "react";
 // Colors are hardcoded here (not global CSS variables) deliberately — this
 // dark palette is specific to the marketing page. /settings and the rest of
 // the app keep their own light/auto theme untouched.
+//
+// Brand palette (matches the calendar+spark mark in /public/brand).
 const BG = "#09090b";
 const FG = "#f4f4f5";
 const MUTED = "#a1a1aa";
 const BORDER = "rgba(255,255,255,0.08)";
 const SURFACE = "rgba(255,255,255,0.03)";
-const ACCENT = "#2563eb";
+const ACCENT = "#2075fe";
+const ACCENT_RGB = "32,117,254";
 
 const PILLARS: Array<{ title: string; tagline: string; description: string }> = [
   {
@@ -64,15 +67,8 @@ const DEMOS = [
 ];
 
 function Logo({ size = 28 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 128 128" aria-hidden="true">
-      <rect width="128" height="128" rx="28" fill={ACCENT} />
-      <rect x="43" y="19" width="8" height="16" rx="4" fill="#ffffff" />
-      <rect x="77" y="19" width="8" height="16" rx="4" fill="#ffffff" />
-      <rect x="30" y="33" width="68" height="62" rx="10" fill="#ffffff" />
-      <polygon points="99,17 102,25 110,28 102,31 99,39 96,31 88,28 96,25" fill="#ffffff" />
-    </svg>
-  );
+  // eslint-disable-next-line @next/next/no-img-element -- fixed-size brand mark, not a content image
+  return <img src="/brand/icon-mark.png" width={size} height={size} alt="" aria-hidden="true" />;
 }
 
 function TransformChip() {
@@ -86,7 +82,7 @@ function TransformChip() {
       </span>
       <span
         className="rounded-full border px-4 py-2 font-mono"
-        style={{ borderColor: "rgba(37,99,235,0.4)", background: "rgba(37,99,235,0.1)", color: FG }}
+        style={{ borderColor: `rgba(${ACCENT_RGB},0.4)`, background: `rgba(${ACCENT_RGB},0.1)`, color: FG }}
       >
         🦷 Dentist · Tue, Oct 14 · 3:00 PM
       </span>
@@ -118,7 +114,7 @@ function WaitlistForm() {
     return (
       <p
         className="rounded-full border px-5 py-2.5 text-sm"
-        style={{ borderColor: "rgba(37,99,235,0.4)", background: "rgba(37,99,235,0.1)", color: FG }}
+        style={{ borderColor: `rgba(${ACCENT_RGB},0.4)`, background: `rgba(${ACCENT_RGB},0.1)`, color: FG }}
       >
         You&rsquo;re on the list — we&rsquo;ll email you when there&rsquo;s news.
       </p>
@@ -173,7 +169,7 @@ function DemoShowcase() {
       <div className="relative">
         <div
           className="pointer-events-none absolute -inset-8 -z-10 rounded-full blur-3xl"
-          style={{ background: "rgba(37,99,235,0.2)" }}
+          style={{ background: `rgba(${ACCENT_RGB},0.2)` }}
           aria-hidden="true"
         />
         <div className="mx-auto max-w-xs overflow-hidden rounded-2xl border bg-black shadow-2xl" style={{ borderColor: BORDER }}>
