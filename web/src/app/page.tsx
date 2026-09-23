@@ -3,15 +3,15 @@
 import { useState } from "react";
 
 // Colors are hardcoded here (not global CSS variables) deliberately — this
-// dark palette is specific to the marketing page. /settings and the rest of
-// the app keep their own light/auto theme untouched.
+// palette is specific to the marketing page. /settings keeps its own
+// light/auto theme untouched.
 //
 // Brand palette (matches the calendar+spark mark in /public/brand).
-const BG = "#09090b";
-const FG = "#f4f4f5";
-const MUTED = "#a1a1aa";
-const BORDER = "rgba(255,255,255,0.08)";
-const SURFACE = "rgba(255,255,255,0.03)";
+const BG = "#ffffff";
+const FG = "#0b1220";
+const MUTED = "#64748b";
+const BORDER = "rgba(15,23,42,0.10)";
+const SURFACE = "#f8fafc";
 const ACCENT = "#2075fe";
 const ACCENT_RGB = "32,117,254";
 
@@ -142,7 +142,7 @@ function WaitlistForm() {
           {status === "loading" ? "Joining…" : "Join the waitlist"}
         </button>
       </form>
-      {status === "error" && <p className="text-xs text-red-400">Couldn&rsquo;t save that — try again?</p>}
+      {status === "error" && <p className="text-xs text-red-600">Couldn&rsquo;t save that — try again?</p>}
     </div>
   );
 }
@@ -224,7 +224,7 @@ function DoneVisual() {
   return (
     <div className="grid grid-cols-7 gap-1 rounded-lg border px-3 py-2.5" style={{ borderColor: BORDER, background: SURFACE }}>
       {cells.map((_, i) => (
-        <span key={i} className="h-4 rounded-sm" style={{ background: i === 3 ? ACCENT : "rgba(255,255,255,0.1)" }} />
+        <span key={i} className="h-4 rounded-sm" style={{ background: i === 3 ? ACCENT : "rgba(15,23,42,0.08)" }} />
       ))}
     </div>
   );
