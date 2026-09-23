@@ -155,8 +155,8 @@ export default function PrivacyPolicy() {
       <Section title="Contact">
         <p>
           Questions, or want your data deleted? Email{" "}
-          <a href="mailto:privacy@kinroo.ai" className="text-blue-600 underline">
-            privacy@kinroo.ai
+          <a href="mailto:kinroo.ai@gmail.com" className="text-blue-600 underline">
+            kinroo.ai@gmail.com
           </a>
           .
         </p>

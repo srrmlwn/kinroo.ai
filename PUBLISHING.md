@@ -14,7 +14,7 @@ this as the checklist to work through yourself.
       a published product).
 - [ ] $5 one-time registration fee ([Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) → pay via Google Payments).
 - [ ] `https://kinroo.ai/privacy` live in production (added in this PR — confirm it loads before submitting).
-- [ ] The `privacy@kinroo.ai` contact address (used in the privacy policy and the OAuth consent screen) actually receiving mail — set up a forwarding alias to your own inbox if you haven't. If you'd rather use a different address, change it in `web/src/app/privacy/page.tsx` and in the OAuth consent screen (step 6 below) before submitting.
+- [ ] Use `kinroo.ai@gmail.com` as the contact address on the OAuth consent screen's support/developer contact fields, matching the privacy policy.
 
 ## 1. Package the extension
 
