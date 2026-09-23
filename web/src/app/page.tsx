@@ -295,11 +295,14 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="mx-auto w-full max-w-5xl px-6 pb-10">
+      <footer className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-6 pb-10">
         <p className="inline-block rounded-full border px-4 py-2 text-xs" style={{ borderColor: BORDER, background: SURFACE, color: MUTED }}>
           Zero event persistence: kinroo reads and writes through Google APIs on your command.
           Your schedule never touches our servers.
         </p>
+        <a href="/privacy" className="text-xs underline" style={{ color: MUTED }}>
+          Privacy Policy
+        </a>
       </footer>
     </main>
   );
