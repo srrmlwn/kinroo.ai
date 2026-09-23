@@ -13,8 +13,20 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://kinroo.ai"),
   title: "kinroo.ai",
   description: "Natural language on top of your Google Calendar.",
+  openGraph: {
+    title: "kinroo.ai",
+    description: "Natural language on top of your Google Calendar.",
+    images: ["/brand/banner.jpg"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "kinroo.ai",
+    description: "Natural language on top of your Google Calendar.",
+    images: ["/brand/banner.jpg"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -6,8 +6,8 @@
   --border: #cccccc;
   --border-light: #eeeeee;
   --surface: #f1f3f4;
-  --accent: #1a73e8;
-  --accent-disabled: #9db8e8;
+  --accent: #2075fe;
+  --accent-disabled: #a6c8fe;
   --danger: #b3261e;
   --danger-bg: #fce8e6;
 }
@@ -21,7 +21,7 @@
     --border: #5f6368;
     --border-light: #3c4043;
     --surface: #303134;
-    --accent: #8ab4f8;
+    --accent: #5b9dff;
     --accent-disabled: #3c4043;
     --danger: #f28b82;
     --danger-bg: #3c2a2a;
