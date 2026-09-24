@@ -16,6 +16,10 @@ import type { EventAction, EditableAction, ParseResponse, CalendarEvent, CreateE
 interface ConfirmingState {
   actions: EditableAction[];
   error?: string;
+  // What was actually typed/scanned to produce this review — shown as a
+  // quiet "You said" line so the context isn't lost once the compose box
+  // clears itself for the next message.
+  submittedText?: string;
 }
 
 // confirming/answer live as optional fields on the ready view (rather than
@@ -43,6 +47,9 @@ type View =
       // handleParsed) — when present, renderAnswer shows the same tiles as
       // the upcoming-events list instead of a plain bullet-point paragraph.
       answerEvents?: CalendarEvent[];
+      // What was asked to produce `answer` — same "You said" purpose as
+      // ConfirmingState.submittedText.
+      answerQuery?: string;
     };
 
 let state: View = { kind: "loading" };
@@ -422,7 +429,11 @@ async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
 // Shared by the compose box (handleSubmit) and the page-scan button
 // (handleDetectPage) — both end up with a ParseResponse to react to, they
 // just differ in where the text they sent came from.
-async function handleParsed(current: Extract<View, { kind: "ready" }>, result: ParseResponse) {
+async function handleParsed(
+  current: Extract<View, { kind: "ready" }>,
+  result: ParseResponse,
+  submittedText?: string,
+) {
   if (result.intent === "query") {
     inputText = "";
     // notice/undo are cleared here (not just left to whatever current had)
@@ -437,6 +448,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       confirming: undefined,
       answer: result.answer ?? "Nothing found.",
       answerEvents: result.queryEvents,
+      answerQuery: submittedText,
     });
     return;
   }
@@ -459,7 +471,8 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       undo: undefined,
       answer: undefined,
       answerEvents: undefined,
-      confirming: { actions: annotated },
+      answerQuery: undefined,
+      confirming: { actions: annotated, submittedText },
     });
     return;
   }
@@ -483,6 +496,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
     confirming: undefined,
     answer: undefined,
     answerEvents: undefined,
+    answerQuery: undefined,
   });
 }
 
@@ -506,12 +520,15 @@ function handleApiErrorOrElse(
 
 async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
   if (!inputText.trim() && !current.pendingFile) return;
+  // Captured before the parse — a file submission has no text to show back,
+  // and inputText itself gets cleared once the review screen renders.
+  const submittedText = current.pendingFile ? undefined : inputText.trim();
   setState({ ...current, busy: true });
   try {
     const result = current.pendingFile
       ? await parseFile(current.pendingFile)
       : await parseText(inputText.trim());
-    await handleParsed(current, result);
+    await handleParsed(current, result, submittedText);
   } catch (err) {
     handleApiErrorOrElse(current, err);
   }
@@ -799,7 +816,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   const followup = view.confirming
     ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy, view.calendarLabel)}</div>`
     : view.answer !== undefined
-      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents)}</div>`
+      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents, view.answerQuery)}</div>`
       : renderUpcoming(view);
 
   return `
@@ -1005,6 +1022,7 @@ function renderConfirming(
     : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`;
 
   return `
+    ${renderSaidLine(confirming.submittedText)}
     <p class="lead">${leadText}</p>
     <p class="confirm-trust">${trustText}</p>
     <div class="candidates">${rows}</div>
@@ -1019,11 +1037,21 @@ function renderConfirming(
   `;
 }
 
-function renderAnswer(text: string, events: CalendarEvent[] | undefined): string {
+// Quiet reminder of what was actually typed/scanned, since the compose box
+// clears itself as soon as a review screen (confirm or answer) takes over
+// the slot below it — without this the context you just typed is gone the
+// moment you can no longer act on it. Omitted for submissions with nothing
+// meaningful to quote back (a file attachment, a page scan).
+function renderSaidLine(submittedText: string | undefined): string {
+  return submittedText ? `<p class="said-line">You said: "${escapeHtml(submittedText)}"</p>` : "";
+}
+
+function renderAnswer(text: string, events: CalendarEvent[] | undefined, submittedText: string | undefined): string {
   const body = events?.length
     ? renderEventTiles(events)
     : `<p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
   return `
+    ${renderSaidLine(submittedText)}
     ${body}
     <button id="answer-dismiss" class="link answer-dismiss">Dismiss</button>
   `;
@@ -1266,7 +1294,7 @@ function attachHandlers() {
 
     if (current.answer !== undefined) {
       document.getElementById("answer-dismiss")?.addEventListener("click", () => {
-        setState({ ...current, answer: undefined, answerEvents: undefined });
+        setState({ ...current, answer: undefined, answerEvents: undefined, answerQuery: undefined });
       });
     }
   }

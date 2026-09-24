@@ -84,6 +84,19 @@ h1 {
   margin: 0 0 12px;
 }
 
+/* Quieter than .lead — a reminder of what was typed, not the main message
+   of the screen. Truncates instead of wrapping so a long message can't
+   push the actual review content down. */
+.said-line {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 button {
   font: inherit;
   cursor: pointer;
