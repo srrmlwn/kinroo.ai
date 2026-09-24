@@ -1,7 +1,4 @@
 import { connectGoogle } from "../auth";
-import { parseText } from "../api";
-import { annotateConflicts } from "../conflicts";
-import type { EditableAction } from "../types";
 
 const CONTEXT_MENU_ID = "kinroo-add-selection";
 
@@ -15,10 +12,10 @@ const CONTEXT_MENU_ID = "kinroo-add-selection";
 //   still means it isn't tied to the panel's document at all — a closed or
 //   not-yet-opened panel doesn't block sign-in.
 // - The right-click "add selection" flow below: there's no panel open at
-//   all when the context menu is clicked, so the parse has to happen here
-//   and hand its result to the panel via the same `draft` storage key the
-//   panel already restores from (see persistDraft in panel.ts) — opening
-//   the panel after a click picks the result up automatically.
+//   all when the context menu is clicked, so the selection has to be handed
+//   off via the same `draft` storage key the panel already restores from
+//   (see persistDraft in panel.ts) — opening the panel after a click picks
+//   it up automatically.
 chrome.runtime.onInstalled.addListener(() => {
   console.log("kinroo.ai extension installed");
   chrome.contextMenus.create({
@@ -42,11 +39,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true; // keep the message channel open for the async response
 });
 
-function setBadge(text: string, color?: string): void {
-  chrome.action.setBadgeText({ text });
-  if (color) chrome.action.setBadgeBackgroundColor({ color });
-}
-
 function openSidePanelForTab(tab: chrome.tabs.Tab | undefined): void {
   if (tab?.windowId === undefined) return;
   chrome.sidePanel
@@ -60,55 +52,19 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!selection) return;
 
   // Must happen synchronously, before any await — chrome.sidePanel.open()
-  // requires a live user gesture, and parseText below is a network call
-  // (sometimes hitting the Claude fallback) that can easily take a second
-  // or more. By the time it resolved, this click no longer counted as
-  // "recent" and Chrome silently refused to open the panel at all.
+  // requires a live user gesture.
   openSidePanelForTab(tab);
 
-  setBadge("…", "#9AA0A6");
-
-  // Marks a draft written by this flow rather than by the panel's own
-  // persistDraft — the panel's storage.onChanged listener uses this to
-  // apply it live if the panel is already open (init() alone only covers
-  // a panel that was closed and just opened fresh).
-  const source = "selection" as const;
-
-  parseText(selection)
-    .then(async (result) => {
-      if (result.intent === "query") {
-        await chrome.storage.local.set({
-          draft: { kind: "answer", text: result.answer ?? "Nothing found.", events: result.queryEvents, source },
-        });
-      } else if (result.actions.length > 0) {
-        // A single match is safe to default-select (matches the panel's
-        // "accept all" UX for a lone create); multiple ambiguous
-        // update/delete matches default unchecked so the user picks the
-        // right one once they open the panel.
-        const editable: EditableAction[] = result.actions.map((action) => ({
-          action,
-          selected: action.type === "create" || result.actions.length === 1,
-        }));
-        const actions = await annotateConflicts(editable);
-        await chrome.storage.local.set({ draft: { kind: "confirming", actions, source } });
-      } else {
-        await chrome.storage.local.set({
-          draft: { kind: "notice", text: "Couldn't find an event or question in that selection.", source },
-        });
-      }
-    })
-    .catch(async (err) => {
-      // Covers "not signed in" and network/parse failures alike — surfaced
-      // in the panel now instead of a badge glyph nobody was watching for.
-      await chrome.storage.local.set({
-        draft: {
-          kind: "notice",
-          text: err instanceof Error ? err.message : "Something went wrong scanning that selection.",
-          source,
-        },
-      });
-    })
-    .finally(() => {
-      setBadge("");
-    });
+  // Pastes the selection into the compose box rather than parsing it
+  // immediately — every other input path (typing, a pasted image, a
+  // scanned page) requires an explicit Send before it hits the parser, so
+  // a selection shouldn't skip that review/edit step either. Reuses the
+  // panel's own "ready" draft shape (see persistDraft in panel.ts); `source`
+  // marks it as written by this flow rather than the panel's own
+  // persistDraft — the panel's storage.onChanged listener uses that to
+  // apply it live if the panel is already open (init() alone only covers a
+  // panel that was closed and just opened fresh).
+  chrome.storage.local
+    .set({ draft: { kind: "ready", inputText: selection, source: "selection" } })
+    .catch((err) => console.error("[kinroo] failed to write selection draft", err));
 });
