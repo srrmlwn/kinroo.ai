@@ -11,13 +11,19 @@ class ApiError extends Error {
   }
 }
 
+// Not the standard `Authorization` header — Vercel's edge network
+// intercepts/consumes that header for its own deployment-protection checks
+// even on domains meant to be exempt from it, so a bearer token sent as
+// `Authorization` never reaches the route handler. See web/src/lib/session.ts.
+const SESSION_HEADER = "x-kinroo-session";
+
 async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   const [config, token] = await Promise.all([getConfig(), getSessionToken()]);
   if (!token) throw new ApiError("Not signed in", 401);
 
   const res = await fetch(`${config.apiBase}${path}`, {
     ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${token}` },
+    headers: { ...init.headers, [SESSION_HEADER]: token },
   });
   if (res.status === 401) throw new ApiError("Session expired — please reconnect", 401);
   return res;
