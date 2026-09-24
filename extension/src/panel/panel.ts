@@ -253,6 +253,32 @@ document.addEventListener("click", (e) => {
   render();
 });
 
+// activeTab is granted per-tab, at the moment the user invokes the
+// extension (icon click, keyboard shortcut, or context-menu selection) —
+// but the whole point of a persistent side panel is that it survives tab
+// switches, so by the time "Scan page" is clicked the active tab is very
+// often *not* the one activeTab was granted for anymore, and
+// executeScript fails silently. This requests a standing per-origin
+// permission instead, which — unlike activeTab — doesn't expire when you
+// switch tabs. Called only after a plain scan attempt has already failed
+// (see handleDetectPage), so the common case where activeTab still
+// happens to be valid never shows an extra prompt. Must be reached
+// quickly from the click that triggered it — chrome.permissions.request
+// needs to run within the browser's "recent user gesture" window, and a
+// long chain of awaits before it can cause Chrome to silently refuse.
+async function ensureActiveTabAccess(): Promise<boolean> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || !/^https?:\/\//.test(tab.url)) return false;
+    const origin = `${new URL(tab.url).origin}/*`;
+    const has = await chrome.permissions.contains({ origins: [origin] });
+    if (has) return true;
+    return await chrome.permissions.request({ origins: [origin] });
+  } catch {
+    return false;
+  }
+}
+
 // Explicit, on-demand full-page scan — a separate action ("Detect events on
 // this page") rather than something that silently prefills the compose box,
 // since dumping a whole page's text into a visible text field the user
@@ -370,6 +396,14 @@ async function init() {
         answer: draft.text,
         answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
       });
+      return;
+    }
+    // Written by background.ts's right-click "Add selection" flow when
+    // there's nothing better to show — a parse error, or nothing
+    // recognizable in the selection — so it's not just a badge glyph
+    // nobody saw.
+    if (draft?.kind === "notice" && typeof draft.text === "string") {
+      enterReady(me.email, { notice: draft.text });
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
@@ -537,7 +571,18 @@ async function handleSubmit(current: Extract<View, { kind: "ready" }>) {
 async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
   setState({ ...current, busy: true, notice: undefined });
   try {
-    const pageText = await scanPageText();
+    let pageText = await scanPageText();
+    if (!pageText) {
+      // Empty could mean a genuinely blank page, or it could mean
+      // activeTab no longer covers this tab (see ensureActiveTabAccess) —
+      // ask for standing access and retry once before giving up.
+      const granted = await ensureActiveTabAccess();
+      if (!granted) {
+        setState({ ...current, busy: false, notice: "Allow kinroo to read this page, then try Scan again." });
+        return;
+      }
+      pageText = await scanPageText();
+    }
     if (!pageText) {
       setState({ ...current, busy: false, notice: "Couldn't read any text on this page.", noticeError: true });
       return;
