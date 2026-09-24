@@ -61,6 +61,8 @@ const ICON_SETTINGS =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2" fill="currentColor" stroke="none"/></svg>';
 const ICON_CLEAR =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const ICON_CALENDAR =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
 
 // Cached across ready-state re-entries within one panel session — the
 // default calendar rarely changes and re-fetching it on every confirm would
@@ -669,7 +671,6 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
     <div class="below-compose upcoming">
       <p class="upcoming-heading">Upcoming</p>
       ${body}
-      <a id="open-calendar" class="calendar-link" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar ↗</a>
     </div>
   `;
 }
@@ -677,9 +678,13 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
 // Rendered into the static #header-actions slot in panel.html (empty for
 // every other view) — an icon cluster instead of raw email/calendar text,
 // which used to cost ~30px of vertical space on every single screen.
+// "Open Google Calendar" lives here (rather than under the upcoming-events
+// list, where it used to be) so it stays reachable no matter which of the
+// three below-compose slots — upcoming, confirm, or answer — is showing.
 function renderHeaderActions(view: Extract<View, { kind: "ready" }>): string {
   const initial = view.email.trim().charAt(0).toUpperCase() || "?";
   return `
+    <a id="open-calendar" class="icon-btn" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener" title="Open Google Calendar" aria-label="Open Google Calendar">${ICON_CALENDAR}</a>
     <button id="settings-icon" class="icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
     <div id="avatar-wrapper" class="avatar-wrapper">
       <button id="avatar-btn" class="avatar-btn" title="${escapeAttr(view.email)}" aria-label="Account">
