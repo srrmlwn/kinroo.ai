@@ -59,6 +59,8 @@ const ICON_SCAN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V4a1 1 0 011-1h3"/><path d="M17 3h3a1 1 0 011 1v3"/><path d="M21 17v3a1 1 0 01-1 1h-3"/><path d="M7 21H4a1 1 0 01-1-1v-3"/></svg>';
 const ICON_SETTINGS =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2" fill="currentColor" stroke="none"/></svg>';
+const ICON_CLEAR =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
 // Cached across ready-state re-entries within one panel session — the
 // default calendar rarely changes and re-fetching it on every confirm would
@@ -750,6 +752,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
           <button id="attach-btn" type="button" class="icon-btn" title="Attach a screenshot, photo, or PDF" aria-label="Attach a file" ${view.busy ? "disabled" : ""}>${ICON_ATTACH}</button>
           <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden ${view.busy ? "disabled" : ""} />
           <button id="scan-btn" type="button" class="icon-btn" title="Scan current page for events" aria-label="Scan current page for events" ${view.busy ? "disabled" : ""}>${ICON_SCAN}</button>
+          <button id="clear-btn" type="button" class="icon-btn" title="Clear text" aria-label="Clear text" ${view.busy ? "disabled" : ""} style="${inputText.trim() ? "" : "display:none;"}">${ICON_CLEAR}</button>
         </div>
         <button id="submit" type="button" class="send-btn" title="Send (Ctrl/Cmd+Enter)" aria-label="Send" ${view.busy ? "disabled" : ""}>${view.busy ? "…" : ICON_SEND}</button>
       </div>
@@ -948,6 +951,15 @@ function autoResizeTextarea(el: HTMLTextAreaElement): void {
   el.style.height = `${el.scrollHeight}px`;
 }
 
+// Typing and picking a chip both update inputText without a full render()
+// (to avoid re-rendering the compose box on every keystroke), so clear-btn's
+// visibility — driven by inputText at render time — needs the same direct
+// DOM toggle rather than waiting for the next unrelated re-render.
+function syncClearBtn(): void {
+  const clearBtn = document.getElementById("clear-btn");
+  if (clearBtn) clearBtn.style.display = inputText.trim() ? "" : "none";
+}
+
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
 
 function attachHandlers() {
@@ -988,11 +1000,22 @@ function attachHandlers() {
 
     const textInput = document.getElementById("text-input") as HTMLTextAreaElement | null;
     if (textInput) autoResizeTextarea(textInput);
+    document.getElementById("clear-btn")?.addEventListener("click", () => {
+      inputText = "";
+      if (textInput) {
+        textInput.value = "";
+        autoResizeTextarea(textInput);
+        textInput.focus();
+      }
+      persistDraft(state);
+      render();
+    });
     textInput?.addEventListener("input", (e) => {
       const el = e.target as HTMLTextAreaElement;
       inputText = el.value;
       autoResizeTextarea(el);
       persistDraft(state);
+      syncClearBtn();
     });
     textInput?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1036,6 +1059,7 @@ function attachHandlers() {
           textInput.focus();
         }
         persistDraft(state);
+        syncClearBtn();
       });
     });
 
