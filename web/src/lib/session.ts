@@ -20,7 +20,16 @@ export async function verifySessionToken(
   try {
     const { payload } = await jwtVerify(token, getSecret());
     return typeof payload.sub === "string" ? payload.sub : null;
-  } catch {
+  } catch (err) {
+    // TEMP DIAGNOSTIC — remove with the other [debug-session]/[debug-verify]
+    // logging once the "session expired immediately after sign-in" bug is
+    // resolved.
+    console.error("[debug-verify] jwtVerify failed", {
+      name: err instanceof Error ? err.name : typeof err,
+      message: err instanceof Error ? err.message : String(err),
+      tokenPreview: token.slice(0, 30),
+      tokenLen: token.length,
+    });
     return null;
   }
 }
@@ -65,6 +74,16 @@ function readCookie(request: Request, name: string): string | null {
 // authenticated userId, or null if missing/invalid.
 export async function getUserId(request: Request): Promise<string | null> {
   const auth = request.headers.get("authorization");
+  // TEMP DIAGNOSTIC — remove with the other [debug-session]/[debug-verify]
+  // logging once the "session expired immediately after sign-in" bug is
+  // resolved.
+  console.log("[debug-getuserid]", {
+    url: request.url,
+    hasAuthHeader: auth != null,
+    authPreview: auth?.slice(0, 20),
+    authLen: auth?.length,
+    startsWithBearer: auth?.startsWith("Bearer "),
+  });
   if (auth?.startsWith("Bearer ")) {
     return verifySessionToken(auth.slice("Bearer ".length));
   }
