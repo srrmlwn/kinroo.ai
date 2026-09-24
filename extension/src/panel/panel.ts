@@ -63,6 +63,8 @@ const ICON_CLEAR =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 const ICON_CALENDAR =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+const ICON_CHECK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
 // Cached across ready-state re-entries within one panel session — the
 // default calendar rarely changes and re-fetching it on every confirm would
@@ -128,20 +130,38 @@ function fromDatetimeLocalValue(value: string): string {
   return new Date(value).toISOString();
 }
 
-// "Today" / "Tomorrow" / "Mon 21" — used by the upcoming-events tiles, where
-// a full "Mon, Sep 21" date repeated five times in a row is just noise.
-function formatRelativeDay(iso: string): string {
+// "Today" / "Tomorrow" / "Friday" / "Friday, Oct 3" — the heading each
+// same-day run of events is grouped under, so the date is stated once
+// instead of repeated on every row. Bare weekday names only stay
+// unambiguous within the next 6 days (UPCOMING_WINDOW_DAYS is 14, so two
+// Fridays can appear in one list) — past that it adds the date too.
+function formatGroupHeading(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(date) - startOfDay(now)) / (24 * 60 * 60 * 1000));
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Tomorrow";
-  return `${date.toLocaleDateString(undefined, { weekday: "short" })} ${date.getDate()}`;
+  if (diffDays < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
+  return date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
 function formatTimeBadge(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+// Used in the confirm screen's clickable time summary — "Friday, September
+// 25" / "9:00 AM – 9:30 AM" rather than a raw datetime-local field's
+// locale-formatted "09/25/2026, 09:00 AM". The actual datetime-local inputs
+// stay fully functional underneath; this is just what's shown by default.
+function formatHumanDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+function formatHumanTimeRange(start: string, end: string): string {
+  const startLabel = new Date(start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const endLabel = new Date(end).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${startLabel} – ${endLabel}`;
 }
 
 function formatEventTime(start: string, end: string): string {
@@ -639,23 +659,72 @@ function renderUnauthenticated(view: Extract<View, { kind: "unauthenticated" }>)
   `;
 }
 
+// One example per capability (create, query, modify, cancel) — cycled in the
+// compose hint below, not shown as clickable chips. Order matters: this is
+// the first thing a new user reads, so it leads with the most common case.
 const EXAMPLE_PROMPTS = [
-  "What's on Saturday?",
-  "Doctor's appointment at 9am tomorrow",
+  "Dentist appointment tomorrow at 3pm",
+  "What's on my calendar Saturday?",
+  "Move my 3pm meeting to 4pm",
   "Cancel my dentist appointment",
 ];
+const EXAMPLE_ROTATE_MS = 4000;
+// Matches the CSS transition duration on .compose-hint-example — the text
+// swap happens at the fade's midpoint so it's never visible mid-crossfade.
+const EXAMPLE_FADE_MS = 200;
+let exampleIndex = 0;
+
+// Ticks forever at module scope (like the tab-selection listeners below)
+// rather than being started/stopped per render — cheap to no-op via the
+// getElementById check when the hint isn't currently showing (user typing,
+// or on a different screen entirely), and avoids interval lifecycle
+// bookkeeping tied to render() calls.
+function tickExampleRotation(): void {
+  const el = document.getElementById("compose-hint-example");
+  if (!el) return;
+  el.classList.add("fade-out");
+  window.setTimeout(() => {
+    exampleIndex = (exampleIndex + 1) % EXAMPLE_PROMPTS.length;
+    const current = document.getElementById("compose-hint-example");
+    if (!current) return;
+    current.textContent = EXAMPLE_PROMPTS[exampleIndex];
+    current.classList.remove("fade-out");
+  }, EXAMPLE_FADE_MS);
+}
+setInterval(tickExampleRotation, EXAMPLE_ROTATE_MS);
 
 // Shared with renderAnswer — a query answer ("what's on Saturday?", "list my
 // next 10 events") is the same shape of data as the upcoming-events list, so
 // it gets the same tiles instead of a plain bullet-point paragraph.
+// Groups consecutive same-day events under one heading instead of repeating
+// the date on every row — relies on events already arriving in chronological
+// order (both callers get that for free from the Calendar API / listEvents).
 function renderEventTiles(events: CalendarEvent[]): string {
-  return events
+  const groups: Array<{ heading: string; events: CalendarEvent[] }> = [];
+  for (const event of events) {
+    const heading = formatGroupHeading(event.start);
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup?.heading === heading) {
+      lastGroup.events.push(event);
+    } else {
+      groups.push({ heading, events: [event] });
+    }
+  }
+
+  return groups
     .map(
-      (event) => `
-        <div class="upcoming-tile" title="${escapeAttr(formatEventTime(event.start, event.end))}">
-          <span class="upcoming-day">${escapeHtml(formatRelativeDay(event.start))}</span>
-          <span class="upcoming-item-title">${escapeHtml(event.title)}</span>
-          <span class="upcoming-time-badge">${escapeHtml(formatTimeBadge(event.start))}</span>
+      (group) => `
+        <div class="upcoming-group">
+          <p class="upcoming-group-heading">${escapeHtml(group.heading)}</p>
+          ${group.events
+            .map(
+              (event) => `
+            <div class="upcoming-row" title="${escapeAttr(formatEventTime(event.start, event.end))}">
+              <span class="upcoming-row-time">${escapeHtml(formatTimeBadge(event.start))}</span>
+              <span class="upcoming-row-title">${escapeHtml(event.title)}</span>
+            </div>`,
+            )
+            .join("")}
         </div>`,
     )
     .join("");
@@ -717,24 +786,18 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
        </div>`
     : "";
 
-  // Suggestions are only useful before you've started typing and before
-  // there's a confirm/answer already occupying the slot below — once either
-  // is true they'd just be dead weight competing with real content.
+  // The hint teaches the product without competing for attention: it's only
+  // useful before you've typed anything and before a confirm/answer is
+  // already occupying the slot below — once either is true it'd just be
+  // idle "What's on your mind?" chrome sitting above real content.
   const hasFollowup = Boolean(view.confirming) || view.answer !== undefined;
-  const chips =
-    inputText.trim() || hasFollowup
-      ? ""
-      : `<div class="chips-wrap">
-         <div class="chips">
-           ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
-         </div>
-       </div>`;
+  const showHint = !inputText.trim() && !hasFollowup;
 
   // Confirm and answer take over the same slot upcoming events normally
   // occupy — only one of the three shows at a time, right below compose,
   // instead of replacing the whole panel the way separate views used to.
   const followup = view.confirming
-    ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy)}</div>`
+    ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy, view.calendarLabel)}</div>`
     : view.answer !== undefined
       ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents)}</div>`
       : renderUpcoming(view);
@@ -743,25 +806,30 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
     ${
       view.notice
         ? `<div class="notice-row">
-             <p class="notice${view.noticeError ? " error" : ""}">${escapeHtml(view.notice)}</p>
+             <p class="notice${view.noticeError ? " error" : " success"}">${view.noticeError ? "" : `<span class="notice-icon">${ICON_CHECK}</span>`}${escapeHtml(view.notice)}</p>
              ${view.undo?.length ? `<button id="undo" class="link">Undo</button>` : ""}
              <button id="notice-dismiss" class="link" aria-label="Dismiss">Dismiss</button>
            </div>`
         : ""
     }
     <div id="compose" class="compose">
-      <textarea id="text-input" rows="2" placeholder="Add an event or ask a question…" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+      <div class="compose-input-wrap">
+        <textarea id="text-input" rows="2" placeholder="" aria-label="Add an event or ask a question" ${view.busy ? "disabled" : ""}>${escapeHtml(inputText)}</textarea>
+        <div id="compose-hint" class="compose-hint" aria-hidden="true" style="${showHint ? "" : "display:none;"}">
+          <span class="compose-hint-title">What's on your mind?</span>
+          <span id="compose-hint-example" class="compose-hint-example">${escapeHtml(EXAMPLE_PROMPTS[exampleIndex])}</span>
+        </div>
+      </div>
       ${fileChip}
       <div class="compose-toolbar">
         <div class="compose-toolbar-left">
           <button id="attach-btn" type="button" class="icon-btn" title="Attach a screenshot, photo, or PDF" aria-label="Attach a file" ${view.busy ? "disabled" : ""}>${ICON_ATTACH}</button>
           <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden ${view.busy ? "disabled" : ""} />
-          <button id="scan-btn" type="button" class="icon-btn" title="Scan current page for events" aria-label="Scan current page for events" ${view.busy ? "disabled" : ""}>${ICON_SCAN}</button>
+          <button id="scan-btn" type="button" class="icon-btn" title="Scan the current page for events" aria-label="Scan the current page for events" ${view.busy ? "disabled" : ""}>${ICON_SCAN}</button>
           <button id="clear-btn" type="button" class="icon-btn" title="Clear text" aria-label="Clear text" ${view.busy ? "disabled" : ""} style="${inputText.trim() ? "" : "display:none;"}">${ICON_CLEAR}</button>
         </div>
         <button id="submit" type="button" class="send-btn" title="Send (Ctrl/Cmd+Enter)" aria-label="Send" ${view.busy ? "disabled" : ""}>${view.busy ? "…" : ICON_SEND}</button>
       </div>
-      ${chips}
     </div>
     ${followup}
   `;
@@ -845,23 +913,36 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
       : "";
   return `
     ${originalNote}
-    <input type="text" class="cand-title candidate-title-input" data-index="${i}" value="${escapeAttr(c.title)}" />
-    <div class="candidate-times">
-      <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" />
-      <span>–</span>
-      <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" />
+    <input type="text" class="cand-title candidate-title-input" data-index="${i}" value="${escapeAttr(c.title)}" aria-label="Event title" />
+    <div class="candidate-time-edit">
+      <button type="button" class="candidate-time-summary" data-index="${i}" aria-label="Edit date and time">
+        <span class="candidate-time-date">${escapeHtml(formatHumanDate(c.start))}</span>
+        <span class="candidate-time-range">${escapeHtml(formatHumanTimeRange(c.start, c.end))}</span>
+      </button>
+      <div class="candidate-times">
+        <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" aria-label="Start time" />
+        <span>–</span>
+        <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" aria-label="End time" />
+      </div>
     </div>
     ${recurrenceNote}
   `;
 }
 
-// Rows reuse the exact upcoming-tile shape (accent stripe, tile background,
-// rounded-right corners) so a pending event reads as the same kind of thing
-// as one already on the calendar — dashed instead of solid to signal "not
-// on your calendar yet", plus a checkbox and (for create/update) editable
-// fields since this one still needs a decision.
-function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined): string {
+// Tile shape (accent stripe, tile background, rounded-right corners) is
+// deliberately heavier than the plain upcoming-event rows — a pending
+// change needs to stand out as something awaiting a decision, dashed
+// instead of solid to signal "not on your calendar yet". A single proposed
+// event skips the checkbox (there's
+// nothing to select between); two or more keep it so the user can choose
+// which ones to act on.
+function renderConfirming(
+  confirming: ConfirmingState,
+  busy: boolean | undefined,
+  calendarLabel: string | undefined,
+): string {
   const actionType = confirming.actions[0]?.action.type ?? "create";
+  const isSingle = confirming.actions.length === 1;
 
   const rows = confirming.actions
     .map((item, i) => {
@@ -874,9 +955,12 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
         action.type === "create" && item.conflicts?.length
           ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(item.conflicts[0].title)}"${item.conflicts.length > 1 ? ` +${item.conflicts.length - 1} more` : ""}</p>`
           : "";
+      const checkbox = isSingle
+        ? ""
+        : `<input type="checkbox" class="cand-selected candidate-checkbox" data-index="${i}" ${item.selected ? "checked" : ""} aria-label="Include this event" />`;
       return `
       <div class="candidate-tile" data-index="${i}">
-        <input type="checkbox" class="cand-selected candidate-checkbox" data-index="${i}" ${item.selected ? "checked" : ""} aria-label="Include this event" />
+        ${checkbox}
         <div class="candidate-body">
           ${body}
           ${conflictNote}
@@ -886,19 +970,27 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
     .join("");
 
   const selectedCount = confirming.actions.filter((a) => a.selected).length;
+  const count = confirming.actions.length;
 
   const leadText =
     actionType === "delete"
-      ? confirming.actions.length > 1
-        ? `${confirming.actions.length} matching events found — review before canceling.`
-        : "Review before canceling."
+      ? isSingle
+        ? "Review before canceling."
+        : `Review ${count} events to cancel.`
       : actionType === "update"
-        ? confirming.actions.length > 1
-          ? `${confirming.actions.length} matching events found — review the change before updating.`
-          : "Review the change before updating."
-        : confirming.actions.length > 1
-          ? `${confirming.actions.length} events found — review before adding.`
-          : "Review before adding.";
+        ? isSingle
+          ? "Review the change before updating."
+          : `Review ${count} events to update.`
+        : isSingle
+          ? "Review before adding."
+          : `Review ${count} events`;
+
+  const trustText =
+    actionType === "delete"
+      ? "Nothing will be canceled without your confirmation."
+      : actionType === "update"
+        ? "Nothing will be changed without your confirmation."
+        : "Nothing will be added without your confirmation.";
 
   const confirmVerb = actionType === "delete" ? "Cancel" : actionType === "update" ? "Update" : "Add";
   const confirmBusyLabel =
@@ -906,17 +998,24 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
   // "Cancel" is the confirm verb for a delete row, so the dismiss link uses
   // a different word there to avoid two same-labeled buttons.
   const dismissLabel = actionType === "delete" ? "Back" : "Cancel";
+  // Never "Add 1 event" — when there's only one candidate total the count is
+  // just noise; it's only worth stating once there's something to count.
+  const confirmLabel = isSingle
+    ? `${confirmVerb} event`
+    : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`;
 
   return `
     <p class="lead">${leadText}</p>
+    <p class="confirm-trust">${trustText}</p>
     <div class="candidates">${rows}</div>
     ${confirming.error ? `<p class="notice error">${escapeHtml(confirming.error)}</p>` : ""}
     <div class="confirm-actions">
       <button id="confirm-dismiss" class="link" ${busy ? "disabled" : ""}>${dismissLabel}</button>
       <button id="confirm" class="primary" ${busy || selectedCount === 0 ? "disabled" : ""}>
-        ${busy ? confirmBusyLabel : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`}
+        ${busy ? confirmBusyLabel : confirmLabel}
       </button>
     </div>
+    ${calendarLabel ? `<p class="confirm-destination">Google Calendar · ${escapeHtml(calendarLabel)}</p>` : ""}
   `;
 }
 
@@ -963,6 +1062,16 @@ function autoResizeTextarea(el: HTMLTextAreaElement): void {
 function syncClearBtn(): void {
   const clearBtn = document.getElementById("clear-btn");
   if (clearBtn) clearBtn.style.display = inputText.trim() ? "" : "none";
+}
+
+// Same reasoning as syncClearBtn — typing updates inputText without a full
+// render(), so the hint's visibility needs the same direct toggle. Only
+// inputText matters here: hasFollowup (the other half of showHint) can't
+// change from typing alone, only from a state transition that already goes
+// through setState/render.
+function syncComposeHint(): void {
+  const hint = document.getElementById("compose-hint");
+  if (hint) hint.style.display = inputText.trim() ? "none" : "";
 }
 
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
@@ -1021,6 +1130,7 @@ function attachHandlers() {
       autoResizeTextarea(el);
       persistDraft(state);
       syncClearBtn();
+      syncComposeHint();
     });
     textInput?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1053,19 +1163,6 @@ function attachHandlers() {
         revokeThumb();
         setState({ ...current, pendingFile: file });
       }
-    });
-
-    document.querySelectorAll<HTMLButtonElement>(".chip").forEach((el) => {
-      el.addEventListener("click", () => {
-        inputText = el.textContent ?? "";
-        if (textInput) {
-          textInput.value = inputText;
-          autoResizeTextarea(textInput);
-          textInput.focus();
-        }
-        persistDraft(state);
-        syncClearBtn();
-      });
     });
 
     const compose = document.getElementById("compose");
@@ -1110,6 +1207,18 @@ function attachHandlers() {
             idx === i ? { ...item, selected: el.checked } : item,
           );
           setState({ ...current, confirming: { ...confirming, actions } });
+        });
+      });
+      // Presentational only — reveals the native datetime-local inputs in
+      // place without a full re-render, since nothing about state changes
+      // until one of those inputs actually commits. Their own "change"
+      // handlers below trigger setState on commit, which re-renders back to
+      // summary view for free.
+      document.querySelectorAll<HTMLButtonElement>(".candidate-time-summary").forEach((el) => {
+        el.addEventListener("click", () => {
+          const wrap = el.closest(".candidate-time-edit");
+          wrap?.classList.add("editing");
+          wrap?.querySelector<HTMLInputElement>(".cand-start")?.focus();
         });
       });
       document.querySelectorAll<HTMLInputElement>(".cand-title").forEach((el) => {

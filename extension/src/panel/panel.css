@@ -10,6 +10,7 @@
   --accent-disabled: #a6c8fe;
   --danger: #b3261e;
   --danger-bg: #fce8e6;
+  --success: #1e8e3e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +26,7 @@
     --accent-disabled: #3c4043;
     --danger: #f28b82;
     --danger-bg: #3c2a2a;
+    --success: #81c995;
   }
 }
 
@@ -283,44 +285,38 @@ textarea:focus {
   cursor: default;
 }
 
-.chips-wrap {
+.compose-input-wrap {
   position: relative;
-  margin-top: 8px;
 }
 
-.chips-wrap::after {
-  content: "";
+/* Sits over the empty textarea (same 4px inset as its own padding, so the
+   two lines land exactly where typed text would start) and never intercepts
+   clicks — focusing/typing works exactly as if the hint weren't there. */
+.compose-hint {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 24px;
-  background: linear-gradient(to right, transparent, var(--bg));
+  inset: 4px 4px auto 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   pointer-events: none;
 }
 
-.chips {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  gap: 6px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+.compose-hint-title {
+  font-size: 13px;
+  color: var(--fg);
 }
 
-.chips::-webkit-scrollbar {
-  display: none;
-}
-
-.chip {
-  flex-shrink: 0;
-  font-size: 11px;
-  padding: 4px 9px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted-2);
+.compose-hint-example {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  transition: opacity 0.2s ease;
+}
+
+.compose-hint-example.fade-out {
+  opacity: 0;
 }
 
 .file-chip {
@@ -358,6 +354,9 @@ textarea:focus {
 }
 
 .notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--fg);
   background: var(--surface);
@@ -369,6 +368,19 @@ textarea:focus {
 .notice.error {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.notice-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--success);
+}
+
+.notice-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 /* Shared by everything that occupies the slot below compose — upcoming
@@ -389,43 +401,48 @@ textarea:focus {
   margin: 0 0 6px;
 }
 
-.upcoming-tile {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  border-left: 3px solid var(--accent);
-  background: var(--surface);
-  border-radius: 0 6px 6px 0;
+.upcoming-group {
+  margin-bottom: 12px;
 }
 
-.upcoming-day {
-  flex-shrink: 0;
-  width: 60px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
+.upcoming-group:last-child {
+  margin-bottom: 0;
+}
+
+.upcoming-group-heading {
+  font-size: 10px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--muted);
+  margin: 0 0 4px;
 }
 
-.upcoming-item-title {
+/* A quiet list row rather than a card — no background, no border, no time
+   pill. The date is stated once via .upcoming-group-heading above, so each
+   row only needs to carry the time and title. */
+.upcoming-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+.upcoming-row-time {
+  flex-shrink: 0;
+  width: 58px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.upcoming-row-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.upcoming-time-badge {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--bg);
-  border-radius: 10px;
-  padding: 2px 7px;
+  color: var(--fg);
 }
 
 .upcoming-empty {
@@ -439,9 +456,9 @@ textarea:focus {
   overflow-y: auto;
 }
 
-/* Same shape as .upcoming-tile (accent stripe, tile background, rounded
-   right corners) so a pending event and a confirmed one read as the same
-   kind of thing — dashed instead of solid marks "not on your calendar yet". */
+/* Heavier than the plain .upcoming-row list style — a pending change needs
+   to stand out as something awaiting a decision. Dashed border marks "not
+   on your calendar yet". */
 .candidate-tile {
   display: flex;
   align-items: flex-start;
@@ -485,13 +502,49 @@ textarea:focus {
   border-bottom-color: var(--accent);
 }
 
-.candidate-times {
+.candidate-time-edit {
+  position: relative;
+}
+
+/* Looks like plain text until interacted with, matching the same "quiet
+   until you touch it" treatment as .candidate-title-input — a button only
+   because it needs to be clickable, not because it should look like one. */
+.candidate-time-summary {
   display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--muted);
+}
+
+.candidate-time-date {
+  color: var(--fg);
+}
+
+.candidate-time-range {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.candidate-time-edit.editing .candidate-time-summary {
+  display: none;
+}
+
+.candidate-times {
+  display: none;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
   font-size: 11px;
   color: var(--muted);
+}
+
+.candidate-time-edit.editing .candidate-times {
+  display: flex;
 }
 
 .candidate-times input {
@@ -530,6 +583,12 @@ textarea:focus {
   margin: 0;
 }
 
+.confirm-trust {
+  font-size: 11px;
+  color: var(--muted);
+  margin: -4px 0 10px;
+}
+
 .confirm-actions {
   display: flex;
   justify-content: space-between;
@@ -541,6 +600,13 @@ textarea:focus {
   width: auto;
   margin-top: 0;
   padding: 8px 16px;
+}
+
+.confirm-destination {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 8px 0 0;
+  text-align: center;
 }
 
 .answer {
