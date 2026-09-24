@@ -38,6 +38,10 @@ type View =
       upcomingLoading?: boolean;
       confirming?: ConfirmingState;
       answer?: string;
+      // Only ever the events `answer`'s text is a rendering of (see
+      // handleParsed) — when present, renderAnswer shows the same tiles as
+      // the upcoming-events list instead of a plain bullet-point paragraph.
+      answerEvents?: CalendarEvent[];
     };
 
 let state: View = { kind: "loading" };
@@ -98,7 +102,7 @@ function persistDraft(view: View) {
   if (view.kind === "ready" && view.confirming) {
     payload = { kind: "confirming", actions: view.confirming.actions };
   } else if (view.kind === "ready" && view.answer !== undefined) {
-    payload = { kind: "answer", text: view.answer };
+    payload = { kind: "answer", text: view.answer, events: view.answerEvents };
   } else if (view.kind === "ready") {
     payload = { kind: "ready", inputText };
   }
@@ -287,7 +291,13 @@ async function loadCalendarLabel(email: string): Promise<void> {
 // than duplicated at every call site.
 function enterReady(
   email: string,
-  opts?: { notice?: string; undo?: EventAction[]; confirming?: ConfirmingState; answer?: string },
+  opts?: {
+    notice?: string;
+    undo?: EventAction[];
+    confirming?: ConfirmingState;
+    answer?: string;
+    answerEvents?: CalendarEvent[];
+  },
 ): void {
   avatarMenuOpen = false;
   setState({
@@ -301,6 +311,7 @@ function enterReady(
     upcomingLoading: cachedUpcoming === undefined,
     confirming: opts?.confirming,
     answer: opts?.answer,
+    answerEvents: opts?.answerEvents,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
@@ -321,7 +332,10 @@ async function init() {
       return;
     }
     if (draft?.kind === "answer" && typeof draft.text === "string") {
-      enterReady(me.email, { answer: draft.text });
+      enterReady(me.email, {
+        answer: draft.text,
+        answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      });
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
@@ -394,6 +408,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       undo: undefined,
       confirming: undefined,
       answer: result.answer ?? "Nothing found.",
+      answerEvents: result.queryEvents,
     });
     return;
   }
@@ -415,6 +430,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       notice: undefined,
       undo: undefined,
       answer: undefined,
+      answerEvents: undefined,
       confirming: { actions: annotated },
     });
     return;
@@ -426,7 +442,15 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       : result.intent === "delete"
         ? "Couldn't find a matching event to cancel — try being more specific."
         : "Couldn't find an event or question in that — try rephrasing.";
-  setState({ ...current, pendingFile: undefined, busy: false, notice, confirming: undefined, answer: undefined });
+  setState({
+    ...current,
+    pendingFile: undefined,
+    busy: false,
+    notice,
+    confirming: undefined,
+    answer: undefined,
+    answerEvents: undefined,
+  });
 }
 
 function handleApiErrorOrElse(
@@ -607,21 +631,28 @@ const EXAMPLE_PROMPTS = [
   "Cancel my dentist appointment",
 ];
 
-function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
-  const body = view.upcomingLoading
-    ? `<p class="upcoming-empty">Loading…</p>`
-    : !view.upcomingEvents?.length
-      ? `<p class="upcoming-empty">Nothing on your calendar for the next two weeks.</p>`
-      : view.upcomingEvents
-          .map(
-            (event) => `
+// Shared with renderAnswer — a query answer ("what's on Saturday?", "list my
+// next 10 events") is the same shape of data as the upcoming-events list, so
+// it gets the same tiles instead of a plain bullet-point paragraph.
+function renderEventTiles(events: CalendarEvent[]): string {
+  return events
+    .map(
+      (event) => `
         <div class="upcoming-tile" title="${escapeAttr(formatEventTime(event.start, event.end))}">
           <span class="upcoming-day">${escapeHtml(formatRelativeDay(event.start))}</span>
           <span class="upcoming-item-title">${escapeHtml(event.title)}</span>
           <span class="upcoming-time-badge">${escapeHtml(formatTimeBadge(event.start))}</span>
         </div>`,
-          )
-          .join("");
+    )
+    .join("");
+}
+
+function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
+  const body = view.upcomingLoading
+    ? `<p class="upcoming-empty">Loading…</p>`
+    : !view.upcomingEvents?.length
+      ? `<p class="upcoming-empty">Nothing on your calendar for the next two weeks.</p>`
+      : renderEventTiles(view.upcomingEvents);
   return `
     <div class="below-compose upcoming">
       <p class="upcoming-heading">Upcoming</p>
@@ -688,7 +719,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   const followup = view.confirming
     ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy)}</div>`
     : view.answer !== undefined
-      ? `<div class="below-compose answer-block">${renderAnswer(view.answer)}</div>`
+      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents)}</div>`
       : renderUpcoming(view);
 
   return `
@@ -870,9 +901,12 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
   `;
 }
 
-function renderAnswer(text: string): string {
+function renderAnswer(text: string, events: CalendarEvent[] | undefined): string {
+  const body = events?.length
+    ? renderEventTiles(events)
+    : `<p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
   return `
-    <p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>
+    ${body}
     <button id="answer-dismiss" class="link answer-dismiss">Dismiss</button>
   `;
 }
@@ -1080,7 +1114,7 @@ function attachHandlers() {
 
     if (current.answer !== undefined) {
       document.getElementById("answer-dismiss")?.addEventListener("click", () => {
-        setState({ ...current, answer: undefined });
+        setState({ ...current, answer: undefined, answerEvents: undefined });
       });
     }
   }
