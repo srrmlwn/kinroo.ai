@@ -27,7 +27,8 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Panel (formerly an action popup, migrated to `chrome.sidePanel` — resizable, survives focus loss/tab switches): compose input (text) + file input/paste/drag-and-drop (image/pdf), auto-growing textarea, Cmd/Ctrl+Enter submit, example prompt chips
 - [x] Panel: confirm list UI (editable rows, accept/deselect, bulk write) covering create/update/delete rows
 - [x] Panel: query answer display
-- [x] Panel: "Scan page" action — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior)
+- [x] Panel: "Scan page" action — runs the page's full text through the pipeline without prefilling the compose box (replaced the earlier noisy auto-scan-into-textbox behavior). Fixed a real bug: it silently failed most of the time because `activeTab` is granted per-tab at the moment the extension is invoked, but the whole point of a persistent side panel is surviving tab switches — so the active tab often wasn't the one `activeTab` covered anymore. Now falls back to requesting a standing per-origin permission (`optional_host_permissions`) when the plain attempt comes back empty.
+- [x] Right-click "Add selection to kinroo.ai" now always surfaces a result — writes a notice draft and auto-opens the side panel (`chrome.sidePanel.open`) on every outcome (confirm card, answer, "nothing found," or error), instead of a badge glyph on the toolbar icon that was easy to miss entirely
 - [x] Panel: conflict detection — flags overlapping existing events on create rows before confirm, rechecked on edit
 - [x] Panel: connected/disconnected state handling, basic error states
 - [x] Panel: upcoming-events strip (next 5, `GET /api/events`) as compact tiles — relative day labels + time badges — with an "Open Google Calendar" link

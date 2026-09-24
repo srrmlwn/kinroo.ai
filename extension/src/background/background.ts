@@ -47,7 +47,18 @@ function setBadge(text: string, color?: string): void {
   if (color) chrome.action.setBadgeBackgroundColor({ color });
 }
 
-chrome.contextMenus.onClicked.addListener((info) => {
+// Called after the draft (confirming/answer/notice) is already written to
+// storage, never before — the panel only reads that draft once, at
+// startup, so opening it first would risk showing a stale or empty state
+// while the parse is still in flight.
+function openSidePanelForTab(tab: chrome.tabs.Tab | undefined): void {
+  if (tab?.windowId === undefined) return;
+  chrome.sidePanel
+    .open({ windowId: tab.windowId })
+    .catch((err) => console.error("[kinroo] failed to open side panel", err));
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== CONTEXT_MENU_ID) return;
   const selection = info.selectionText?.trim();
   if (!selection) return;
@@ -58,9 +69,8 @@ chrome.contextMenus.onClicked.addListener((info) => {
     .then(async (result) => {
       if (result.intent === "query") {
         await chrome.storage.local.set({
-          draft: { kind: "answer", text: result.answer ?? "Nothing found." },
+          draft: { kind: "answer", text: result.answer ?? "Nothing found.", events: result.queryEvents },
         });
-        setBadge("✓", "#1E8E3E");
       } else if (result.actions.length > 0) {
         // A single match is safe to default-select (matches the panel's
         // "accept all" UX for a lone create); multiple ambiguous
@@ -72,20 +82,25 @@ chrome.contextMenus.onClicked.addListener((info) => {
         }));
         const actions = await annotateConflicts(editable);
         await chrome.storage.local.set({ draft: { kind: "confirming", actions } });
-        setBadge("✓", "#1E8E3E");
       } else {
-        // Nothing recognizable in the selection — no panel is open to show
-        // an inline notice, so just clear the "working" badge.
-        setBadge("");
+        await chrome.storage.local.set({
+          draft: { kind: "notice", text: "Couldn't find an event or question in that selection." },
+        });
       }
+      openSidePanelForTab(tab);
     })
-    .catch(() => {
-      // Covers "not signed in" (opening the panel manually still shows the
-      // normal connect screen) and network/parse failures alike — there's
-      // no panel surface to report the specific error to here.
-      setBadge("");
+    .catch(async (err) => {
+      // Covers "not signed in" and network/parse failures alike — surfaced
+      // in the panel now instead of a badge glyph nobody was watching for.
+      await chrome.storage.local.set({
+        draft: {
+          kind: "notice",
+          text: err instanceof Error ? err.message : "Something went wrong scanning that selection.",
+        },
+      });
+      openSidePanelForTab(tab);
     })
     .finally(() => {
-      setTimeout(() => setBadge(""), 8000);
+      setBadge("");
     });
 });
