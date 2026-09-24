@@ -15,6 +15,7 @@ interface GoogleProfile {
   sub: string;
   email: string;
   name?: string;
+  picture?: string;
 }
 
 export async function exchangeCodeForTokens(

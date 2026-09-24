@@ -19,6 +19,7 @@ type View =
   | {
       kind: "ready";
       email: string;
+      pictureUrl?: string;
       pendingFile?: File;
       busy?: boolean;
       notice?: string;
@@ -51,6 +52,7 @@ const ICON_SETTINGS =
 // (see enterReady) since a write can change them.
 let cachedCalendarLabel: string | undefined;
 let cachedUpcoming: CalendarEvent[] | undefined;
+let cachedPictureUrl: string | undefined;
 
 // The image thumbnail in the file-chip needs an object URL, which must be
 // revoked when replaced or removed or it leaks for the life of the panel.
@@ -279,6 +281,7 @@ function enterReady(email: string, opts?: { notice?: string; undo?: EventAction[
   setState({
     kind: "ready",
     email,
+    pictureUrl: cachedPictureUrl,
     notice: opts?.notice,
     undo: opts?.undo,
     calendarLabel: cachedCalendarLabel,
@@ -297,6 +300,7 @@ async function init() {
   }
   try {
     const me = await getMe();
+    cachedPictureUrl = me.pictureUrl;
     const { draft } = await chrome.storage.local.get("draft");
     if (draft?.kind === "confirming" && Array.isArray(draft.actions) && draft.actions.length > 0) {
       setState({ kind: "confirming", email: me.email, actions: draft.actions });
@@ -325,6 +329,7 @@ async function handleConnect() {
     // of whether this panel document is even open (see background.ts).
     const result = await chrome.runtime.sendMessage({ type: "connect-google" });
     if (!result?.ok) throw new Error(result?.error ?? "Sign-in failed");
+    cachedPictureUrl = result.pictureUrl;
     enterReady(result.email);
   } catch (err) {
     setState({
@@ -594,7 +599,14 @@ function renderHeaderActions(view: Extract<View, { kind: "ready" }>): string {
   return `
     <button id="settings-icon" class="icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
     <div id="avatar-wrapper" class="avatar-wrapper">
-      <button id="avatar-btn" class="avatar-btn" title="${escapeAttr(view.email)}" aria-label="Account">${escapeHtml(initial)}</button>
+      <button id="avatar-btn" class="avatar-btn" title="${escapeAttr(view.email)}" aria-label="Account">
+        ${
+          view.pictureUrl
+            ? `<img id="avatar-img" class="avatar-img" src="${escapeAttr(view.pictureUrl)}" alt="" referrerpolicy="no-referrer" />`
+            : ""
+        }
+        <span class="avatar-initial">${escapeHtml(initial)}</span>
+      </button>
       ${
         avatarMenuOpen
           ? `<div class="avatar-menu">
@@ -856,6 +868,11 @@ function attachHandlers() {
     document.getElementById("avatar-btn")?.addEventListener("click", () => {
       avatarMenuOpen = !avatarMenuOpen;
       render();
+    });
+    // Google photo URLs are usually reliable, but fall back to the letter
+    // avatar underneath rather than showing a broken-image icon.
+    document.getElementById("avatar-img")?.addEventListener("error", (e) => {
+      (e.target as HTMLElement).style.display = "none";
     });
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
     document.getElementById("scan-btn")?.addEventListener("click", () => handleDetectPage(current));

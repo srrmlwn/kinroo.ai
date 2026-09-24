@@ -10,6 +10,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "openid",
   "email",
+  // Non-sensitive scope, only used for the account avatar in the panel
+  // header — Google's userinfo endpoint doesn't return `picture` without it.
+  "profile",
 ].join(" ");
 
 export async function getSessionToken(): Promise<string | null> {
@@ -18,14 +21,14 @@ export async function getSessionToken(): Promise<string | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await chrome.storage.local.remove(["sessionToken", "email"]);
+  await chrome.storage.local.remove(["sessionToken", "email", "pictureUrl"]);
 }
 
 // Drives Google's consent screen via chrome.identity, then hands the
 // resulting authorization code to our backend, which exchanges it
 // server-side (the client secret never touches the extension) and returns
 // a session token scoped to our own API.
-export async function connectGoogle(): Promise<{ email: string }> {
+export async function connectGoogle(): Promise<{ email: string; pictureUrl?: string }> {
   const config = await getConfig();
   const redirectUri = chrome.identity.getRedirectURL();
 
@@ -59,7 +62,11 @@ export async function connectGoogle(): Promise<{ email: string }> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `Sign-in failed (${res.status})`);
   }
-  const data = (await res.json()) as { sessionToken: string; email: string };
-  await chrome.storage.local.set({ sessionToken: data.sessionToken, email: data.email });
-  return { email: data.email };
+  const data = (await res.json()) as { sessionToken: string; email: string; pictureUrl?: string };
+  await chrome.storage.local.set({
+    sessionToken: data.sessionToken,
+    email: data.email,
+    pictureUrl: data.pictureUrl,
+  });
+  return { email: data.email, pictureUrl: data.pictureUrl };
 }

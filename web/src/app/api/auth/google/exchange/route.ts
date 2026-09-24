@@ -36,10 +36,15 @@ export async function POST(request: Request) {
 
     const [user] = await db
       .insert(users)
-      .values({ googleAccountId: profile.sub, email: profile.email, name: profile.name })
+      .values({
+        googleAccountId: profile.sub,
+        email: profile.email,
+        name: profile.name,
+        pictureUrl: profile.picture,
+      })
       .onConflictDoUpdate({
         target: users.googleAccountId,
-        set: { email: profile.email, name: profile.name },
+        set: { email: profile.email, name: profile.name, pictureUrl: profile.picture },
       })
       .returning();
 
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
       .onConflictDoNothing({ target: emailIdentities.address });
 
     const sessionToken = await createSessionToken(user.id);
-    return Response.json({ sessionToken, email: user.email });
+    return Response.json({ sessionToken, email: user.email, pictureUrl: user.pictureUrl });
   } catch (err) {
     console.error("[auth/google/exchange]", err);
     return Response.json({ error: "OAuth exchange failed" }, { status: 500 });

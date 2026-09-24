@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   googleAccountId: text("google_account_id").notNull().unique(),
   email: text("email").notNull(),
   name: text("name"),
+  pictureUrl: text("picture_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
