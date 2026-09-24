@@ -118,6 +118,31 @@ describe("fastPathExtractCreate", () => {
     // The whole string is consumed by the date/time match, leaving nothing.
     expect(fastPathExtractCreate("tomorrow at 9am", REF, TZ, 30)).toBeNull();
   });
+
+  it("extracts a trailing 'at <place>' as location, not title", () => {
+    const result = fastPathExtractCreate(
+      "Harinii's waxing appointment on Sunday at 1pm at Waxin the City Ballard",
+      REF,
+      TZ,
+      30,
+    );
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("Harinii's waxing appointment");
+    expect(result?.location).toBe("Waxin the City Ballard");
+  });
+
+  it("extracts a trailing '@ <place>' as location", () => {
+    const result = fastPathExtractCreate("dinner tomorrow at 7pm @ Cafe Luna", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("dinner");
+    expect(result?.location).toBe("Cafe Luna");
+  });
+
+  it("leaves location undefined when there's no trailing 'at <place>'", () => {
+    const result = fastPathExtractCreate("doctor's appointment at 9am tomorrow", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.location).toBeUndefined();
+  });
 });
 
 describe("fastPathQueryRange", () => {
