@@ -562,7 +562,10 @@ function recheckConflicts(actions: EditableAction[]): void {
 
 // "delete" actions have no candidate to patch — a no-op there is fine since
 // no editable fields render for them.
-function withCandidatePatch(action: EventAction, patch: { title?: string; start?: string; end?: string }): EventAction {
+function withCandidatePatch(
+  action: EventAction,
+  patch: { title?: string; start?: string; end?: string; location?: string },
+): EventAction {
   if (action.type === "delete") return action;
   return { ...action, candidate: { ...action.candidate, ...patch } };
 }
@@ -736,9 +739,9 @@ function renderEventTiles(events: CalendarEvent[]): string {
           ${group.events
             .map(
               (event) => `
-            <div class="upcoming-row" title="${escapeAttr(formatEventTime(event.start, event.end))}">
+            <div class="upcoming-row" title="${escapeAttr(formatEventTime(event.start, event.end))}${event.location ? ` · ${escapeAttr(event.location)}` : ""}">
               <span class="upcoming-row-time">${escapeHtml(formatTimeBadge(event.start))}</span>
-              <span class="upcoming-row-title">${escapeHtml(event.title)}</span>
+              <span class="upcoming-row-title">${escapeHtml(event.title)}${event.location ? `<span class="upcoming-row-location"> · ${escapeHtml(event.location)}</span>` : ""}</span>
             </div>`,
             )
             .join("")}
@@ -942,6 +945,7 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
         <input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" aria-label="End time" />
       </div>
     </div>
+    <input type="text" class="cand-location candidate-location-input" data-index="${i}" value="${escapeAttr(c.location ?? "")}" placeholder="Add location" aria-label="Location" />
     ${recurrenceNote}
   `;
 }
@@ -1254,6 +1258,15 @@ function attachHandlers() {
           const i = Number(el.dataset.index);
           const actions = confirming.actions.map((item, idx) =>
             idx === i ? { ...item, action: withCandidatePatch(item.action, { title: el.value }) } : item,
+          );
+          setState({ ...current, confirming: { ...confirming, actions } });
+        });
+      });
+      document.querySelectorAll<HTMLInputElement>(".cand-location").forEach((el) => {
+        el.addEventListener("change", () => {
+          const i = Number(el.dataset.index);
+          const actions = confirming.actions.map((item, idx) =>
+            idx === i ? { ...item, action: withCandidatePatch(item.action, { location: el.value }) } : item,
           );
           setState({ ...current, confirming: { ...confirming, actions } });
         });

@@ -458,6 +458,10 @@ textarea:focus {
   color: var(--fg);
 }
 
+.upcoming-row-location {
+  color: var(--muted);
+}
+
 .upcoming-empty {
   font-size: 12px;
   color: var(--muted);
@@ -512,6 +516,29 @@ textarea:focus {
 
 .candidate-title-input:focus {
   outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* Same quiet-until-touched treatment as .candidate-title-input, but smaller
+   and muted — location is a secondary detail, not present on most events. */
+.candidate-location-input {
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.candidate-location-input::placeholder {
+  color: var(--muted);
+}
+
+.candidate-location-input:focus {
+  outline: none;
+  color: var(--fg);
   border-bottom-color: var(--accent);
 }
 
