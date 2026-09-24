@@ -32,6 +32,7 @@ type View =
       pendingFile?: File;
       busy?: boolean;
       notice?: string;
+      noticeError?: boolean;
       undo?: EventAction[];
       calendarLabel?: string;
       upcomingEvents?: CalendarEvent[];
@@ -293,6 +294,7 @@ function enterReady(
   email: string,
   opts?: {
     notice?: string;
+    noticeError?: boolean;
     undo?: EventAction[];
     confirming?: ConfirmingState;
     answer?: string;
@@ -305,6 +307,7 @@ function enterReady(
     email,
     pictureUrl: cachedPictureUrl,
     notice: opts?.notice,
+    noticeError: opts?.noticeError,
     undo: opts?.undo,
     calendarLabel: cachedCalendarLabel,
     upcomingEvents: cachedUpcoming,
@@ -387,6 +390,7 @@ async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
     setState({
       ...current,
       notice: err instanceof Error ? err.message : "Could not open settings",
+      noticeError: true,
     });
   }
 }
@@ -442,11 +446,16 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       : result.intent === "delete"
         ? "Couldn't find a matching event to cancel — try being more specific."
         : "Couldn't find an event or question in that — try rephrasing.";
+  // Unlike the two branches above, this one used to leave the failed query
+  // sitting in the compose box with no obvious way to clear it — matches
+  // their inputText reset now that there's nothing left for it to do.
+  inputText = "";
   setState({
     ...current,
     pendingFile: undefined,
     busy: false,
     notice,
+    noticeError: true,
     confirming: undefined,
     answer: undefined,
     answerEvents: undefined,
@@ -467,6 +476,7 @@ function handleApiErrorOrElse(
     ...current,
     busy: false,
     notice: err instanceof Error ? err.message : "Something went wrong",
+    noticeError: true,
   });
 }
 
@@ -488,7 +498,7 @@ async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
   try {
     const pageText = await scanPageText();
     if (!pageText) {
-      setState({ ...current, busy: false, notice: "Couldn't read any text on this page." });
+      setState({ ...current, busy: false, notice: "Couldn't read any text on this page.", noticeError: true });
       return;
     }
     const result = await parseText(pageText);
@@ -726,8 +736,9 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
     ${
       view.notice
         ? `<div class="notice-row">
-             <p class="notice">${escapeHtml(view.notice)}</p>
+             <p class="notice${view.noticeError ? " error" : ""}">${escapeHtml(view.notice)}</p>
              ${view.undo?.length ? `<button id="undo" class="link">Undo</button>` : ""}
+             <button id="notice-dismiss" class="link" aria-label="Dismiss">Dismiss</button>
            </div>`
         : ""
     }
@@ -960,6 +971,9 @@ function attachHandlers() {
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
     document.getElementById("scan-btn")?.addEventListener("click", () => handleDetectPage(current));
     document.getElementById("undo")?.addEventListener("click", () => handleUndo(current));
+    document.getElementById("notice-dismiss")?.addEventListener("click", () => {
+      setState({ ...current, notice: undefined, noticeError: undefined });
+    });
     document.getElementById("remove-file")?.addEventListener("click", () => {
       revokeThumb();
       setState({ ...current, pendingFile: undefined });
