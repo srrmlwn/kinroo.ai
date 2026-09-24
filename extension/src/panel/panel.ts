@@ -144,6 +144,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     });
   } else if (draft.kind === "notice" && typeof draft.text === "string") {
     applyExternalState({ ...state, notice: draft.text, noticeError: true });
+  } else if (draft.kind === "ready" && typeof draft.inputText === "string") {
+    // The right-click "Add selection" flow (background.ts) — pastes the
+    // selection into the compose box for review/editing rather than
+    // parsing it immediately, same as every other input path.
+    inputText = draft.inputText;
+    applyExternalState({
+      ...state,
+      confirming: undefined,
+      answer: undefined,
+      answerEvents: undefined,
+      notice: undefined,
+      noticeError: undefined,
+    });
   }
 });
 
