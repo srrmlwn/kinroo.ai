@@ -7,7 +7,7 @@ import {
   fastPathQueryRange,
 } from "./fast-path";
 import { extractWithClaude, type ClaudeInput } from "./claude";
-import { listEvents, type EventCandidate, type EventAction } from "./google-calendar";
+import { listEvents, type EventCandidate, type EventAction, type CalendarEvent } from "./google-calendar";
 import { findMatchingEvents } from "./match-events";
 import { formatQueryAnswer } from "./format-answer";
 import { logLlmCall } from "./llm-log";
@@ -21,6 +21,11 @@ export interface ParseOutcome {
   intent: "create" | "query" | "update" | "delete" | "unknown";
   actions: EventAction[];
   answer?: string;
+  // The same events `answer` is a text rendering of — lets callers that can
+  // show real UI (the extension's event-tile list) skip the text and render
+  // structured data instead. Channels that can only show text (email) keep
+  // using `answer`.
+  queryEvents?: CalendarEvent[];
   usedLlm: boolean;
   inputType: "text" | "image" | "pdf";
 }
@@ -30,11 +35,11 @@ async function answerQuery(
   calendarId: string,
   timezone: string,
   range: { start: Date | string; end: Date | string },
-): Promise<string> {
+): Promise<{ answer: string; events: CalendarEvent[] }> {
   const start = typeof range.start === "string" ? range.start : range.start.toISOString();
   const end = typeof range.end === "string" ? range.end : range.end.toISOString();
   const events = await listEvents(userId, calendarId, start, end);
-  return formatQueryAnswer(events, timezone);
+  return { answer: formatQueryAnswer(events, timezone), events };
 }
 
 // Default search window when Claude doesn't infer one (or the fast path
@@ -148,7 +153,7 @@ export async function parseInput(
     const range = fastPathQueryRange(text, referenceDate, userSettings.timezone);
     if (range) {
       const startedAt = Date.now();
-      const answer = await answerQuery(
+      const { answer, events } = await answerQuery(
         userId,
         userSettings.defaultCalendarId,
         userSettings.timezone,
@@ -163,7 +168,7 @@ export async function parseInput(
         candidateCount: 0,
         latencyMs: Date.now() - startedAt,
       });
-      return { intent: "query", actions: [], answer, usedLlm: false, inputType: "text" };
+      return { intent: "query", actions: [], answer, queryEvents: events, usedLlm: false, inputType: "text" };
     }
   } else if (!isLikelyModification) {
     // Recurring phrasing ("every Monday") skips the fast path — it has no
@@ -209,16 +214,17 @@ export async function parseInput(
   );
 
   let answer: string | undefined;
+  let queryEvents: CalendarEvent[] | undefined;
   let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
 
   const validQueryRange = validRangeOrUndefined(result.queryRange);
   if (result.intent === "query" && validQueryRange) {
-    answer = await answerQuery(
+    ({ answer, events: queryEvents } = await answerQuery(
       userId,
       userSettings.defaultCalendarId,
       userSettings.timezone,
       validQueryRange,
-    );
+    ));
   } else if (result.intent === "update" || result.intent === "delete") {
     actions = await findEventActions(
       userId,
@@ -249,6 +255,7 @@ export async function parseInput(
     intent: result.intent,
     actions,
     answer,
+    queryEvents,
     usedLlm: true,
     inputType: "text",
   };

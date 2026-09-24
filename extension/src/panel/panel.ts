@@ -32,12 +32,17 @@ type View =
       pendingFile?: File;
       busy?: boolean;
       notice?: string;
+      noticeError?: boolean;
       undo?: EventAction[];
       calendarLabel?: string;
       upcomingEvents?: CalendarEvent[];
       upcomingLoading?: boolean;
       confirming?: ConfirmingState;
       answer?: string;
+      // Only ever the events `answer`'s text is a rendering of (see
+      // handleParsed) — when present, renderAnswer shows the same tiles as
+      // the upcoming-events list instead of a plain bullet-point paragraph.
+      answerEvents?: CalendarEvent[];
     };
 
 let state: View = { kind: "loading" };
@@ -54,6 +59,10 @@ const ICON_SCAN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V4a1 1 0 011-1h3"/><path d="M17 3h3a1 1 0 011 1v3"/><path d="M21 17v3a1 1 0 01-1 1h-3"/><path d="M7 21H4a1 1 0 01-1-1v-3"/></svg>';
 const ICON_SETTINGS =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2" fill="currentColor" stroke="none"/></svg>';
+const ICON_CLEAR =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const ICON_CALENDAR =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
 
 // Cached across ready-state re-entries within one panel session — the
 // default calendar rarely changes and re-fetching it on every confirm would
@@ -98,7 +107,7 @@ function persistDraft(view: View) {
   if (view.kind === "ready" && view.confirming) {
     payload = { kind: "confirming", actions: view.confirming.actions };
   } else if (view.kind === "ready" && view.answer !== undefined) {
-    payload = { kind: "answer", text: view.answer };
+    payload = { kind: "answer", text: view.answer, events: view.answerEvents };
   } else if (view.kind === "ready") {
     payload = { kind: "ready", inputText };
   }
@@ -287,7 +296,14 @@ async function loadCalendarLabel(email: string): Promise<void> {
 // than duplicated at every call site.
 function enterReady(
   email: string,
-  opts?: { notice?: string; undo?: EventAction[]; confirming?: ConfirmingState; answer?: string },
+  opts?: {
+    notice?: string;
+    noticeError?: boolean;
+    undo?: EventAction[];
+    confirming?: ConfirmingState;
+    answer?: string;
+    answerEvents?: CalendarEvent[];
+  },
 ): void {
   avatarMenuOpen = false;
   setState({
@@ -295,12 +311,14 @@ function enterReady(
     email,
     pictureUrl: cachedPictureUrl,
     notice: opts?.notice,
+    noticeError: opts?.noticeError,
     undo: opts?.undo,
     calendarLabel: cachedCalendarLabel,
     upcomingEvents: cachedUpcoming,
     upcomingLoading: cachedUpcoming === undefined,
     confirming: opts?.confirming,
     answer: opts?.answer,
+    answerEvents: opts?.answerEvents,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
@@ -321,7 +339,10 @@ async function init() {
       return;
     }
     if (draft?.kind === "answer" && typeof draft.text === "string") {
-      enterReady(me.email, { answer: draft.text });
+      enterReady(me.email, {
+        answer: draft.text,
+        answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      });
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
@@ -373,6 +394,7 @@ async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
     setState({
       ...current,
       notice: err instanceof Error ? err.message : "Could not open settings",
+      noticeError: true,
     });
   }
 }
@@ -394,6 +416,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       undo: undefined,
       confirming: undefined,
       answer: result.answer ?? "Nothing found.",
+      answerEvents: result.queryEvents,
     });
     return;
   }
@@ -415,6 +438,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       notice: undefined,
       undo: undefined,
       answer: undefined,
+      answerEvents: undefined,
       confirming: { actions: annotated },
     });
     return;
@@ -426,7 +450,20 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       : result.intent === "delete"
         ? "Couldn't find a matching event to cancel — try being more specific."
         : "Couldn't find an event or question in that — try rephrasing.";
-  setState({ ...current, pendingFile: undefined, busy: false, notice, confirming: undefined, answer: undefined });
+  // Unlike the two branches above, this one used to leave the failed query
+  // sitting in the compose box with no obvious way to clear it — matches
+  // their inputText reset now that there's nothing left for it to do.
+  inputText = "";
+  setState({
+    ...current,
+    pendingFile: undefined,
+    busy: false,
+    notice,
+    noticeError: true,
+    confirming: undefined,
+    answer: undefined,
+    answerEvents: undefined,
+  });
 }
 
 function handleApiErrorOrElse(
@@ -443,6 +480,7 @@ function handleApiErrorOrElse(
     ...current,
     busy: false,
     notice: err instanceof Error ? err.message : "Something went wrong",
+    noticeError: true,
   });
 }
 
@@ -464,7 +502,7 @@ async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
   try {
     const pageText = await scanPageText();
     if (!pageText) {
-      setState({ ...current, busy: false, notice: "Couldn't read any text on this page." });
+      setState({ ...current, busy: false, notice: "Couldn't read any text on this page.", noticeError: true });
       return;
     }
     const result = await parseText(pageText);
@@ -607,26 +645,32 @@ const EXAMPLE_PROMPTS = [
   "Cancel my dentist appointment",
 ];
 
-function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
-  const body = view.upcomingLoading
-    ? `<p class="upcoming-empty">Loading…</p>`
-    : !view.upcomingEvents?.length
-      ? `<p class="upcoming-empty">Nothing on your calendar for the next two weeks.</p>`
-      : view.upcomingEvents
-          .map(
-            (event) => `
+// Shared with renderAnswer — a query answer ("what's on Saturday?", "list my
+// next 10 events") is the same shape of data as the upcoming-events list, so
+// it gets the same tiles instead of a plain bullet-point paragraph.
+function renderEventTiles(events: CalendarEvent[]): string {
+  return events
+    .map(
+      (event) => `
         <div class="upcoming-tile" title="${escapeAttr(formatEventTime(event.start, event.end))}">
           <span class="upcoming-day">${escapeHtml(formatRelativeDay(event.start))}</span>
           <span class="upcoming-item-title">${escapeHtml(event.title)}</span>
           <span class="upcoming-time-badge">${escapeHtml(formatTimeBadge(event.start))}</span>
         </div>`,
-          )
-          .join("");
+    )
+    .join("");
+}
+
+function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
+  const body = view.upcomingLoading
+    ? `<p class="upcoming-empty">Loading…</p>`
+    : !view.upcomingEvents?.length
+      ? `<p class="upcoming-empty">Nothing on your calendar for the next two weeks.</p>`
+      : renderEventTiles(view.upcomingEvents);
   return `
     <div class="below-compose upcoming">
       <p class="upcoming-heading">Upcoming</p>
       ${body}
-      <a id="open-calendar" class="calendar-link" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar ↗</a>
     </div>
   `;
 }
@@ -634,9 +678,13 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
 // Rendered into the static #header-actions slot in panel.html (empty for
 // every other view) — an icon cluster instead of raw email/calendar text,
 // which used to cost ~30px of vertical space on every single screen.
+// "Open Google Calendar" lives here (rather than under the upcoming-events
+// list, where it used to be) so it stays reachable no matter which of the
+// three below-compose slots — upcoming, confirm, or answer — is showing.
 function renderHeaderActions(view: Extract<View, { kind: "ready" }>): string {
   const initial = view.email.trim().charAt(0).toUpperCase() || "?";
   return `
+    <a id="open-calendar" class="icon-btn" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener" title="Open Google Calendar" aria-label="Open Google Calendar">${ICON_CALENDAR}</a>
     <button id="settings-icon" class="icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
     <div id="avatar-wrapper" class="avatar-wrapper">
       <button id="avatar-btn" class="avatar-btn" title="${escapeAttr(view.email)}" aria-label="Account">
@@ -688,15 +736,16 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   const followup = view.confirming
     ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy)}</div>`
     : view.answer !== undefined
-      ? `<div class="below-compose answer-block">${renderAnswer(view.answer)}</div>`
+      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents)}</div>`
       : renderUpcoming(view);
 
   return `
     ${
       view.notice
         ? `<div class="notice-row">
-             <p class="notice">${escapeHtml(view.notice)}</p>
+             <p class="notice${view.noticeError ? " error" : ""}">${escapeHtml(view.notice)}</p>
              ${view.undo?.length ? `<button id="undo" class="link">Undo</button>` : ""}
+             <button id="notice-dismiss" class="link" aria-label="Dismiss">Dismiss</button>
            </div>`
         : ""
     }
@@ -708,6 +757,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
           <button id="attach-btn" type="button" class="icon-btn" title="Attach a screenshot, photo, or PDF" aria-label="Attach a file" ${view.busy ? "disabled" : ""}>${ICON_ATTACH}</button>
           <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden ${view.busy ? "disabled" : ""} />
           <button id="scan-btn" type="button" class="icon-btn" title="Scan current page for events" aria-label="Scan current page for events" ${view.busy ? "disabled" : ""}>${ICON_SCAN}</button>
+          <button id="clear-btn" type="button" class="icon-btn" title="Clear text" aria-label="Clear text" ${view.busy ? "disabled" : ""} style="${inputText.trim() ? "" : "display:none;"}">${ICON_CLEAR}</button>
         </div>
         <button id="submit" type="button" class="send-btn" title="Send (Ctrl/Cmd+Enter)" aria-label="Send" ${view.busy ? "disabled" : ""}>${view.busy ? "…" : ICON_SEND}</button>
       </div>
@@ -870,9 +920,12 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
   `;
 }
 
-function renderAnswer(text: string): string {
+function renderAnswer(text: string, events: CalendarEvent[] | undefined): string {
+  const body = events?.length
+    ? renderEventTiles(events)
+    : `<p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
   return `
-    <p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>
+    ${body}
     <button id="answer-dismiss" class="link answer-dismiss">Dismiss</button>
   `;
 }
@@ -903,6 +956,15 @@ function autoResizeTextarea(el: HTMLTextAreaElement): void {
   el.style.height = `${el.scrollHeight}px`;
 }
 
+// Typing and picking a chip both update inputText without a full render()
+// (to avoid re-rendering the compose box on every keystroke), so clear-btn's
+// visibility — driven by inputText at render time — needs the same direct
+// DOM toggle rather than waiting for the next unrelated re-render.
+function syncClearBtn(): void {
+  const clearBtn = document.getElementById("clear-btn");
+  if (clearBtn) clearBtn.style.display = inputText.trim() ? "" : "none";
+}
+
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
 
 function attachHandlers() {
@@ -926,6 +988,9 @@ function attachHandlers() {
     document.getElementById("submit")?.addEventListener("click", () => handleSubmit(current));
     document.getElementById("scan-btn")?.addEventListener("click", () => handleDetectPage(current));
     document.getElementById("undo")?.addEventListener("click", () => handleUndo(current));
+    document.getElementById("notice-dismiss")?.addEventListener("click", () => {
+      setState({ ...current, notice: undefined, noticeError: undefined });
+    });
     document.getElementById("remove-file")?.addEventListener("click", () => {
       revokeThumb();
       setState({ ...current, pendingFile: undefined });
@@ -940,11 +1005,22 @@ function attachHandlers() {
 
     const textInput = document.getElementById("text-input") as HTMLTextAreaElement | null;
     if (textInput) autoResizeTextarea(textInput);
+    document.getElementById("clear-btn")?.addEventListener("click", () => {
+      inputText = "";
+      if (textInput) {
+        textInput.value = "";
+        autoResizeTextarea(textInput);
+        textInput.focus();
+      }
+      persistDraft(state);
+      render();
+    });
     textInput?.addEventListener("input", (e) => {
       const el = e.target as HTMLTextAreaElement;
       inputText = el.value;
       autoResizeTextarea(el);
       persistDraft(state);
+      syncClearBtn();
     });
     textInput?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -988,6 +1064,7 @@ function attachHandlers() {
           textInput.focus();
         }
         persistDraft(state);
+        syncClearBtn();
       });
     });
 
@@ -1080,7 +1157,7 @@ function attachHandlers() {
 
     if (current.answer !== undefined) {
       document.getElementById("answer-dismiss")?.addEventListener("click", () => {
-        setState({ ...current, answer: undefined });
+        setState({ ...current, answer: undefined, answerEvents: undefined });
       });
     }
   }

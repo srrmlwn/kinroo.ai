@@ -27,6 +27,7 @@ export interface ParseResponse {
   intent: "create" | "query" | "update" | "delete" | "unknown";
   actions: EventAction[];
   answer?: string;
+  queryEvents?: CalendarEvent[];
   usedLLM: boolean;
   inputType: "text" | "image" | "pdf";
 }
