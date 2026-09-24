@@ -70,13 +70,31 @@ export function fastPathExtractCreate(
     : new Date(start.getTime() + defaultDurationMin * 60_000);
 
   const before = text.slice(0, result.index).trim();
-  const after = text.slice(result.index + result.text.length).trim();
+  let after = text.slice(result.index + result.text.length).trim();
+
+  // A trailing "at <place>" (or "@ <place>") left over after the date/time
+  // match is almost always a location ("dentist at 3pm at Main Street
+  // Dental") rather than more of the title — chrono already claimed the
+  // "at <time>" earlier in the string, so a second leading "at" here isn't
+  // a time and shouldn't get glued onto the title like the rest of `after`.
+  let location: string | undefined;
+  const locationMatch = /^(?:at|@)\s+(.+)$/i.exec(after);
+  if (locationMatch) {
+    location = locationMatch[1].trim();
+    after = "";
+  }
+
   let title = [before, after].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
   title = title.replace(/^(at|on|for|,|-)\s+/i, "").replace(/\s+(at|on)$/i, "");
 
   if (title.length < 2) return null;
 
-  return { title, start: start.toISOString(), end: end.toISOString() };
+  return {
+    title,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    ...(location ? { location } : {}),
+  };
 }
 
 // Start/end of the calendar day (in `timeZone`) that `instant` falls on,
