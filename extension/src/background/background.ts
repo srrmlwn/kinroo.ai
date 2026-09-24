@@ -47,10 +47,6 @@ function setBadge(text: string, color?: string): void {
   if (color) chrome.action.setBadgeBackgroundColor({ color });
 }
 
-// Called after the draft (confirming/answer/notice) is already written to
-// storage, never before — the panel only reads that draft once, at
-// startup, so opening it first would risk showing a stale or empty state
-// while the parse is still in flight.
 function openSidePanelForTab(tab: chrome.tabs.Tab | undefined): void {
   if (tab?.windowId === undefined) return;
   chrome.sidePanel
@@ -63,13 +59,26 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const selection = info.selectionText?.trim();
   if (!selection) return;
 
+  // Must happen synchronously, before any await — chrome.sidePanel.open()
+  // requires a live user gesture, and parseText below is a network call
+  // (sometimes hitting the Claude fallback) that can easily take a second
+  // or more. By the time it resolved, this click no longer counted as
+  // "recent" and Chrome silently refused to open the panel at all.
+  openSidePanelForTab(tab);
+
   setBadge("…", "#9AA0A6");
+
+  // Marks a draft written by this flow rather than by the panel's own
+  // persistDraft — the panel's storage.onChanged listener uses this to
+  // apply it live if the panel is already open (init() alone only covers
+  // a panel that was closed and just opened fresh).
+  const source = "selection" as const;
 
   parseText(selection)
     .then(async (result) => {
       if (result.intent === "query") {
         await chrome.storage.local.set({
-          draft: { kind: "answer", text: result.answer ?? "Nothing found.", events: result.queryEvents },
+          draft: { kind: "answer", text: result.answer ?? "Nothing found.", events: result.queryEvents, source },
         });
       } else if (result.actions.length > 0) {
         // A single match is safe to default-select (matches the panel's
@@ -81,13 +90,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
           selected: action.type === "create" || result.actions.length === 1,
         }));
         const actions = await annotateConflicts(editable);
-        await chrome.storage.local.set({ draft: { kind: "confirming", actions } });
+        await chrome.storage.local.set({ draft: { kind: "confirming", actions, source } });
       } else {
         await chrome.storage.local.set({
-          draft: { kind: "notice", text: "Couldn't find an event or question in that selection." },
+          draft: { kind: "notice", text: "Couldn't find an event or question in that selection.", source },
         });
       }
-      openSidePanelForTab(tab);
     })
     .catch(async (err) => {
       // Covers "not signed in" and network/parse failures alike — surfaced
@@ -96,9 +104,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         draft: {
           kind: "notice",
           text: err instanceof Error ? err.message : "Something went wrong scanning that selection.",
+          source,
         },
       });
-      openSidePanelForTab(tab);
     })
     .finally(() => {
       setBadge("");

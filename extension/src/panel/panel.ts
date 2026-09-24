@@ -100,6 +100,53 @@ function setState(next: View) {
   render();
 }
 
+// Applies a view change triggered by data written elsewhere (the
+// background script's right-click "Add selection" flow) rather than by
+// this panel's own actions. Deliberately skips persistDraft — the source
+// of truth in chrome.storage was just written by the other side, so
+// persisting it again would just re-trigger the storage.onChanged
+// listener below for no reason.
+function applyExternalState(next: View): void {
+  state = next;
+  render();
+}
+
+// init() reads chrome.storage once, at startup, so it only ever catches a
+// draft that was already there when the panel opened. That's fine for a
+// panel that was closed and just opened fresh, but the whole point of a
+// persistent side panel is that it's usually already open — so the
+// right-click "Add selection" flow (background.ts) needs a way to reach a
+// panel that's already running. It writes to the same `draft` key this
+// panel already persists its own state to, marked with `source:
+// "selection"` to tell the two apart; a plain reopen still restores an
+// unmarked draft via init() exactly as before.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.draft) return;
+  const draft = changes.draft.newValue;
+  if (draft?.source !== "selection" || state.kind !== "ready") return;
+  if (draft.kind === "confirming" && Array.isArray(draft.actions) && draft.actions.length > 0) {
+    applyExternalState({
+      ...state,
+      confirming: { actions: draft.actions },
+      answer: undefined,
+      answerEvents: undefined,
+      notice: undefined,
+      noticeError: undefined,
+    });
+  } else if (draft.kind === "answer" && typeof draft.text === "string") {
+    applyExternalState({
+      ...state,
+      answer: draft.text,
+      answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      confirming: undefined,
+      notice: undefined,
+      noticeError: undefined,
+    });
+  } else if (draft.kind === "notice" && typeof draft.text === "string") {
+    applyExternalState({ ...state, notice: draft.text, noticeError: true });
+  }
+});
+
 // The side panel persists across tab switches and ordinary focus loss
 // (unlike the old action popup, which Chrome destroyed on any click
 // elsewhere) — but it can still be closed by the user, reloaded during
