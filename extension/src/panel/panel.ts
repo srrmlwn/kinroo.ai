@@ -13,6 +13,15 @@ import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
 import type { EventAction, EditableAction, ParseResponse, CalendarEvent, CreateEventsResponse } from "../types";
 
+interface ConfirmingState {
+  actions: EditableAction[];
+  error?: string;
+}
+
+// confirming/answer live as optional fields on the ready view (rather than
+// their own view kinds) so they render inline below the compose box instead
+// of replacing the whole panel — compose, the notice/undo row, and the
+// account header all stay live and visible while one is showing.
 type View =
   | { kind: "loading" }
   | { kind: "unauthenticated"; error?: string }
@@ -27,9 +36,9 @@ type View =
       calendarLabel?: string;
       upcomingEvents?: CalendarEvent[];
       upcomingLoading?: boolean;
-    }
-  | { kind: "confirming"; email: string; actions: EditableAction[]; busy?: boolean; error?: string }
-  | { kind: "answer"; email: string; text: string };
+      confirming?: ConfirmingState;
+      answer?: string;
+    };
 
 let state: View = { kind: "loading" };
 let inputText = "";
@@ -86,10 +95,10 @@ function setState(next: View) {
 // actively misleading.
 function persistDraft(view: View) {
   let payload: unknown = null;
-  if (view.kind === "confirming") {
-    payload = { kind: "confirming", actions: view.actions };
-  } else if (view.kind === "answer") {
-    payload = { kind: "answer", text: view.text };
+  if (view.kind === "ready" && view.confirming) {
+    payload = { kind: "confirming", actions: view.confirming.actions };
+  } else if (view.kind === "ready" && view.answer !== undefined) {
+    payload = { kind: "answer", text: view.answer };
   } else if (view.kind === "ready") {
     payload = { kind: "ready", inputText };
   }
@@ -276,7 +285,10 @@ async function loadCalendarLabel(email: string): Promise<void> {
 // after a confirm/undo round-trip, and when backing out of confirm/answer —
 // so upcoming events and the calendar label are always kept current rather
 // than duplicated at every call site.
-function enterReady(email: string, opts?: { notice?: string; undo?: EventAction[] }): void {
+function enterReady(
+  email: string,
+  opts?: { notice?: string; undo?: EventAction[]; confirming?: ConfirmingState; answer?: string },
+): void {
   avatarMenuOpen = false;
   setState({
     kind: "ready",
@@ -287,6 +299,8 @@ function enterReady(email: string, opts?: { notice?: string; undo?: EventAction[
     calendarLabel: cachedCalendarLabel,
     upcomingEvents: cachedUpcoming,
     upcomingLoading: cachedUpcoming === undefined,
+    confirming: opts?.confirming,
+    answer: opts?.answer,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
@@ -303,11 +317,11 @@ async function init() {
     cachedPictureUrl = me.pictureUrl;
     const { draft } = await chrome.storage.local.get("draft");
     if (draft?.kind === "confirming" && Array.isArray(draft.actions) && draft.actions.length > 0) {
-      setState({ kind: "confirming", email: me.email, actions: draft.actions });
+      enterReady(me.email, { confirming: { actions: draft.actions } });
       return;
     }
     if (draft?.kind === "answer" && typeof draft.text === "string") {
-      setState({ kind: "answer", email: me.email, text: draft.text });
+      enterReady(me.email, { answer: draft.text });
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
@@ -369,7 +383,18 @@ async function handleOpenSettings(current: Extract<View, { kind: "ready" }>) {
 async function handleParsed(current: Extract<View, { kind: "ready" }>, result: ParseResponse) {
   if (result.intent === "query") {
     inputText = "";
-    setState({ kind: "answer", email: current.email, text: result.answer ?? "Nothing found." });
+    // notice/undo are cleared here (not just left to whatever current had)
+    // to match the pre-inline behavior, where switching to a query answer
+    // used to mean leaving the ready view entirely and losing them.
+    setState({
+      ...current,
+      pendingFile: undefined,
+      busy: false,
+      notice: undefined,
+      undo: undefined,
+      confirming: undefined,
+      answer: result.answer ?? "Nothing found.",
+    });
     return;
   }
 
@@ -383,7 +408,15 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       selected: action.type === "create" || result.actions.length === 1,
     }));
     const annotated = await annotateConflicts(editable);
-    setState({ kind: "confirming", email: current.email, actions: annotated });
+    setState({
+      ...current,
+      pendingFile: undefined,
+      busy: false,
+      notice: undefined,
+      undo: undefined,
+      answer: undefined,
+      confirming: { actions: annotated },
+    });
     return;
   }
 
@@ -393,7 +426,7 @@ async function handleParsed(current: Extract<View, { kind: "ready" }>, result: P
       : result.intent === "delete"
         ? "Couldn't find a matching event to cancel — try being more specific."
         : "Couldn't find an event or question in that — try rephrasing.";
-  setState({ ...current, pendingFile: undefined, busy: false, notice });
+  setState({ ...current, pendingFile: undefined, busy: false, notice, confirming: undefined, answer: undefined });
 }
 
 function handleApiErrorOrElse(
@@ -446,7 +479,9 @@ async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
 // on view kind since the panel may have moved on (confirm/cancel) by then.
 function recheckConflicts(actions: EditableAction[]): void {
   annotateConflicts(actions).then((annotated) => {
-    if (state.kind === "confirming") setState({ ...state, actions: annotated });
+    if (state.kind === "ready" && state.confirming) {
+      setState({ ...state, confirming: { ...state.confirming, actions: annotated } });
+    }
   });
 }
 
@@ -502,10 +537,12 @@ function buildUndoActions(selected: EditableAction[], results: CreateEventsRespo
   return undo;
 }
 
-async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
-  const selected = current.actions.filter((a) => a.selected);
+async function handleConfirm(current: Extract<View, { kind: "ready" }>) {
+  const confirming = current.confirming;
+  if (!confirming) return;
+  const selected = confirming.actions.filter((a) => a.selected);
   if (selected.length === 0) return;
-  setState({ ...current, busy: true, error: undefined });
+  setState({ ...current, busy: true, confirming: { ...confirming, error: undefined } });
   try {
     const result = await applyActions(selected.map((a) => a.action));
     const failures = result.events.filter((e) => !e.ok);
@@ -513,7 +550,10 @@ async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
       setState({
         ...current,
         busy: false,
-        error: `${failures.length} of ${selected.length} change(s) failed to save. Try again?`,
+        confirming: {
+          ...confirming,
+          error: `${failures.length} of ${selected.length} change(s) failed to save. Try again?`,
+        },
       });
       return;
     }
@@ -537,7 +577,7 @@ async function handleConfirm(current: Extract<View, { kind: "confirming" }>) {
     setState({
       ...current,
       busy: false,
-      error: err instanceof Error ? err.message : "Something went wrong",
+      confirming: { ...confirming, error: err instanceof Error ? err.message : "Something went wrong" },
     });
   }
 }
@@ -583,7 +623,7 @@ function renderUpcoming(view: Extract<View, { kind: "ready" }>): string {
           )
           .join("");
   return `
-    <div class="upcoming">
+    <div class="below-compose upcoming">
       <p class="upcoming-heading">Upcoming</p>
       ${body}
       <a id="open-calendar" class="calendar-link" href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener">Open Google Calendar ↗</a>
@@ -629,15 +669,27 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
        </div>`
     : "";
 
-  // Suggestions are only useful before you've started typing — once there's
-  // real input they'd just be dead weight competing with it.
-  const chips = inputText.trim()
-    ? ""
-    : `<div class="chips-wrap">
+  // Suggestions are only useful before you've started typing and before
+  // there's a confirm/answer already occupying the slot below — once either
+  // is true they'd just be dead weight competing with real content.
+  const hasFollowup = Boolean(view.confirming) || view.answer !== undefined;
+  const chips =
+    inputText.trim() || hasFollowup
+      ? ""
+      : `<div class="chips-wrap">
          <div class="chips">
            ${EXAMPLE_PROMPTS.map((p) => `<button type="button" class="chip" ${view.busy ? "disabled" : ""}>${escapeHtml(p)}</button>`).join("")}
          </div>
        </div>`;
+
+  // Confirm and answer take over the same slot upcoming events normally
+  // occupy — only one of the three shows at a time, right below compose,
+  // instead of replacing the whole panel the way separate views used to.
+  const followup = view.confirming
+    ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy)}</div>`
+    : view.answer !== undefined
+      ? `<div class="below-compose answer-block">${renderAnswer(view.answer)}</div>`
+      : renderUpcoming(view);
 
   return `
     ${
@@ -661,7 +713,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
       </div>
       ${chips}
     </div>
-    ${renderUpcoming(view)}
+    ${followup}
   `;
 }
 
@@ -743,7 +795,7 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
       : "";
   return `
     ${originalNote}
-    <input type="text" class="cand-title" data-index="${i}" value="${escapeAttr(c.title)}" />
+    <input type="text" class="cand-title candidate-title-input" data-index="${i}" value="${escapeAttr(c.title)}" />
     <div class="candidate-times">
       <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" />
       <span>–</span>
@@ -753,13 +805,18 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
   `;
 }
 
-function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
-  const actionType = view.actions[0]?.action.type ?? "create";
+// Rows reuse the exact upcoming-tile shape (accent stripe, tile background,
+// rounded-right corners) so a pending event reads as the same kind of thing
+// as one already on the calendar — dashed instead of solid to signal "not
+// on your calendar yet", plus a checkbox and (for create/update) editable
+// fields since this one still needs a decision.
+function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined): string {
+  const actionType = confirming.actions[0]?.action.type ?? "create";
 
-  const rows = view.actions
+  const rows = confirming.actions
     .map((item, i) => {
       const { action } = item;
-      const fields =
+      const body =
         action.type === "delete"
           ? `<p class="action-delete">Cancel "${escapeHtml(action.original.title)}" — ${escapeHtml(formatEventTime(action.original.start, action.original.end))}</p>`
           : renderEditableFields(action, i);
@@ -768,31 +825,29 @@ function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
           ? `<p class="conflict-warning">⚠ Overlaps "${escapeHtml(item.conflicts[0].title)}"${item.conflicts.length > 1 ? ` +${item.conflicts.length - 1} more` : ""}</p>`
           : "";
       return `
-      <div class="candidate" data-index="${i}">
-        <label class="candidate-select">
-          <input type="checkbox" class="cand-selected" data-index="${i}" ${item.selected ? "checked" : ""} />
-        </label>
-        <div class="candidate-fields">
-          ${fields}
+      <div class="candidate-tile" data-index="${i}">
+        <input type="checkbox" class="cand-selected candidate-checkbox" data-index="${i}" ${item.selected ? "checked" : ""} aria-label="Include this event" />
+        <div class="candidate-body">
+          ${body}
           ${conflictNote}
         </div>
       </div>`;
     })
     .join("");
 
-  const selectedCount = view.actions.filter((a) => a.selected).length;
+  const selectedCount = confirming.actions.filter((a) => a.selected).length;
 
   const leadText =
     actionType === "delete"
-      ? view.actions.length > 1
-        ? `${view.actions.length} matching events found — review before canceling.`
+      ? confirming.actions.length > 1
+        ? `${confirming.actions.length} matching events found — review before canceling.`
         : "Review before canceling."
       : actionType === "update"
-        ? view.actions.length > 1
-          ? `${view.actions.length} matching events found — review the change before updating.`
+        ? confirming.actions.length > 1
+          ? `${confirming.actions.length} matching events found — review the change before updating.`
           : "Review the change before updating."
-        : view.actions.length > 1
-          ? `${view.actions.length} events found — review before adding.`
+        : confirming.actions.length > 1
+          ? `${confirming.actions.length} events found — review before adding.`
           : "Review before adding.";
 
   const confirmVerb = actionType === "delete" ? "Cancel" : actionType === "update" ? "Update" : "Add";
@@ -805,20 +860,20 @@ function renderConfirming(view: Extract<View, { kind: "confirming" }>): string {
   return `
     <p class="lead">${leadText}</p>
     <div class="candidates">${rows}</div>
-    ${view.error ? `<p class="notice error">${escapeHtml(view.error)}</p>` : ""}
+    ${confirming.error ? `<p class="notice error">${escapeHtml(confirming.error)}</p>` : ""}
     <div class="confirm-actions">
-      <button id="cancel" class="link" ${view.busy ? "disabled" : ""}>${dismissLabel}</button>
-      <button id="confirm" class="primary" ${view.busy || selectedCount === 0 ? "disabled" : ""}>
-        ${view.busy ? confirmBusyLabel : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`}
+      <button id="confirm-dismiss" class="link" ${busy ? "disabled" : ""}>${dismissLabel}</button>
+      <button id="confirm" class="primary" ${busy || selectedCount === 0 ? "disabled" : ""}>
+        ${busy ? confirmBusyLabel : `${confirmVerb} ${selectedCount} event${selectedCount === 1 ? "" : "s"}`}
       </button>
     </div>
   `;
 }
 
-function renderAnswer(view: Extract<View, { kind: "answer" }>): string {
+function renderAnswer(text: string): string {
   return `
-    <p class="answer">${escapeHtml(view.text).replace(/\n/g, "<br />")}</p>
-    <button id="new-query" class="primary">New search</button>
+    <p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>
+    <button id="answer-dismiss" class="link answer-dismiss">Dismiss</button>
   `;
 }
 
@@ -834,12 +889,6 @@ function render() {
       break;
     case "ready":
       root.innerHTML = renderReady(state);
-      break;
-    case "confirming":
-      root.innerHTML = renderConfirming(state);
-      break;
-    case "answer":
-      root.innerHTML = renderAnswer(state);
       break;
   }
 
@@ -966,72 +1015,74 @@ function attachHandlers() {
         }
       });
     }
-  }
 
-  if (state.kind === "confirming") {
-    const current = state;
-    document.getElementById("cancel")?.addEventListener("click", () => {
-      enterReady(current.email);
-    });
-    document.getElementById("confirm")?.addEventListener("click", () => handleConfirm(current));
+    if (current.confirming) {
+      const confirming = current.confirming;
+      // A lightweight local clear rather than enterReady() — nothing about
+      // the calendar changed, so there's no need to re-fetch upcoming
+      // events or the calendar label just to dismiss.
+      document.getElementById("confirm-dismiss")?.addEventListener("click", () => {
+        setState({ ...current, confirming: undefined });
+      });
+      document.getElementById("confirm")?.addEventListener("click", () => handleConfirm(current));
 
-    document.querySelectorAll<HTMLInputElement>(".cand-selected").forEach((el) => {
-      el.addEventListener("change", () => {
-        const i = Number(el.dataset.index);
-        const actions = current.actions.map((item, idx) =>
-          idx === i ? { ...item, selected: el.checked } : item,
-        );
-        setState({ ...current, actions });
+      document.querySelectorAll<HTMLInputElement>(".cand-selected").forEach((el) => {
+        el.addEventListener("change", () => {
+          const i = Number(el.dataset.index);
+          const actions = confirming.actions.map((item, idx) =>
+            idx === i ? { ...item, selected: el.checked } : item,
+          );
+          setState({ ...current, confirming: { ...confirming, actions } });
+        });
       });
-    });
-    document.querySelectorAll<HTMLInputElement>(".cand-title").forEach((el) => {
-      el.addEventListener("change", () => {
-        const i = Number(el.dataset.index);
-        const actions = current.actions.map((item, idx) =>
-          idx === i ? { ...item, action: withCandidatePatch(item.action, { title: el.value }) } : item,
-        );
-        setState({ ...current, actions });
+      document.querySelectorAll<HTMLInputElement>(".cand-title").forEach((el) => {
+        el.addEventListener("change", () => {
+          const i = Number(el.dataset.index);
+          const actions = confirming.actions.map((item, idx) =>
+            idx === i ? { ...item, action: withCandidatePatch(item.action, { title: el.value }) } : item,
+          );
+          setState({ ...current, confirming: { ...confirming, actions } });
+        });
       });
-    });
-    document.querySelectorAll<HTMLInputElement>(".cand-start").forEach((el) => {
-      el.addEventListener("change", () => {
-        const i = Number(el.dataset.index);
-        const actions = current.actions.map((item, idx) =>
-          idx === i
-            ? {
-                ...item,
-                action: withCandidatePatch(item.action, { start: fromDatetimeLocalValue(el.value) }),
-                conflicts: undefined,
-              }
-            : item,
-        );
-        setState({ ...current, actions });
-        recheckConflicts(actions);
+      document.querySelectorAll<HTMLInputElement>(".cand-start").forEach((el) => {
+        el.addEventListener("change", () => {
+          const i = Number(el.dataset.index);
+          const actions = confirming.actions.map((item, idx) =>
+            idx === i
+              ? {
+                  ...item,
+                  action: withCandidatePatch(item.action, { start: fromDatetimeLocalValue(el.value) }),
+                  conflicts: undefined,
+                }
+              : item,
+          );
+          setState({ ...current, confirming: { ...confirming, actions } });
+          recheckConflicts(actions);
+        });
       });
-    });
-    document.querySelectorAll<HTMLInputElement>(".cand-end").forEach((el) => {
-      el.addEventListener("change", () => {
-        const i = Number(el.dataset.index);
-        const actions = current.actions.map((item, idx) =>
-          idx === i
-            ? {
-                ...item,
-                action: withCandidatePatch(item.action, { end: fromDatetimeLocalValue(el.value) }),
-                conflicts: undefined,
-              }
-            : item,
-        );
-        setState({ ...current, actions });
-        recheckConflicts(actions);
+      document.querySelectorAll<HTMLInputElement>(".cand-end").forEach((el) => {
+        el.addEventListener("change", () => {
+          const i = Number(el.dataset.index);
+          const actions = confirming.actions.map((item, idx) =>
+            idx === i
+              ? {
+                  ...item,
+                  action: withCandidatePatch(item.action, { end: fromDatetimeLocalValue(el.value) }),
+                  conflicts: undefined,
+                }
+              : item,
+          );
+          setState({ ...current, confirming: { ...confirming, actions } });
+          recheckConflicts(actions);
+        });
       });
-    });
-  }
+    }
 
-  if (state.kind === "answer") {
-    const current = state;
-    document.getElementById("new-query")?.addEventListener("click", () => {
-      enterReady(current.email);
-    });
+    if (current.answer !== undefined) {
+      document.getElementById("answer-dismiss")?.addEventListener("click", () => {
+        setState({ ...current, answer: undefined });
+      });
+    }
   }
 }
 

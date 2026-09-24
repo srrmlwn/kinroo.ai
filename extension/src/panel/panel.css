@@ -370,7 +370,10 @@ textarea:focus {
   color: var(--danger);
 }
 
-.upcoming {
+/* Shared by everything that occupies the slot below compose — upcoming
+   events, the inline confirm card, and the inline answer — only one of
+   which shows at a time. */
+.below-compose {
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--border-light);
@@ -448,25 +451,36 @@ textarea:focus {
   overflow-y: auto;
 }
 
-.candidate {
+/* Same shape as .upcoming-tile (accent stripe, tile background, rounded
+   right corners) so a pending event and a confirmed one read as the same
+   kind of thing — dashed instead of solid marks "not on your calendar yet". */
+.candidate-tile {
   display: flex;
+  align-items: flex-start;
   gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-light);
+  padding: 8px;
+  margin-bottom: 6px;
+  border-left: 3px dashed var(--accent);
+  background: var(--surface);
+  border-radius: 0 6px 6px 0;
 }
 
-.candidate-select {
-  padding-top: 4px;
+.candidate-checkbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 3px;
 }
 
-.candidate-fields {
+.candidate-body {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.candidate-fields input[type="text"] {
+.candidate-title-input {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -475,9 +489,10 @@ textarea:focus {
   border: none;
   border-bottom: 1px solid transparent;
   padding: 2px 0;
+  width: 100%;
 }
 
-.candidate-fields input[type="text"]:focus {
+.candidate-title-input:focus {
   outline: none;
   border-bottom-color: var(--accent);
 }
@@ -544,4 +559,9 @@ textarea:focus {
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-line;
+}
+
+.answer-dismiss {
+  display: inline-block;
+  margin-top: 8px;
 }
