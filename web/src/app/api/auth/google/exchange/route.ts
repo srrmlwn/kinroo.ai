@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { users, oauthTokens, settings, emailIdentities } from "@/lib/db/schema";
 import { encrypt } from "@/lib/crypto";
-import { createSessionToken } from "@/lib/session";
+import { createSessionToken, verifySessionToken } from "@/lib/session";
 import { exchangeCodeForTokens, fetchGoogleProfile } from "@/lib/google-oauth";
 
 // Called by the extension after chrome.identity.launchWebAuthFlow returns an
@@ -77,6 +77,18 @@ export async function POST(request: Request) {
       .onConflictDoNothing({ target: emailIdentities.address });
 
     const sessionToken = await createSessionToken(user.id);
+    // TEMP DIAGNOSTIC — remove after resolving the "session expired
+    // immediately after sign-in" bug. Round-trips the token within this
+    // same request/process to rule out any deployment- or secret-related
+    // inconsistency between signing and verifying.
+    const roundTrip = await verifySessionToken(sessionToken);
+    console.log("[debug-session]", {
+      userId: user.id,
+      userIdType: typeof user.id,
+      roundTripUserId: roundTrip,
+      match: roundTrip === user.id,
+      tokenPreview: sessionToken.slice(0, 20),
+    });
     return Response.json({ sessionToken, email: user.email });
   } catch (err) {
     console.error("[auth/google/exchange]", err);
