@@ -403,7 +403,10 @@ async function init() {
     // recognizable in the selection — so it's not just a badge glyph
     // nobody saw.
     if (draft?.kind === "notice" && typeof draft.text === "string") {
-      enterReady(me.email, { notice: draft.text });
+      // Only ever written for a negative/neutral outcome (see
+      // background.ts's context-menu handler) — success cases arrive as
+      // "confirming"/"answer" drafts instead.
+      enterReady(me.email, { notice: draft.text, noticeError: true });
       return;
     }
     inputText = draft?.kind === "ready" && typeof draft.inputText === "string" ? draft.inputText : "";
@@ -578,7 +581,12 @@ async function handleDetectPage(current: Extract<View, { kind: "ready" }>) {
       // ask for standing access and retry once before giving up.
       const granted = await ensureActiveTabAccess();
       if (!granted) {
-        setState({ ...current, busy: false, notice: "Allow kinroo to read this page, then try Scan again." });
+        setState({
+          ...current,
+          busy: false,
+          notice: "Allow kinroo to read this page, then try Scan again.",
+          noticeError: true,
+        });
         return;
       }
       pageText = await scanPageText();

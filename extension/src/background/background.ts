@@ -69,7 +69,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     .then(async (result) => {
       if (result.intent === "query") {
         await chrome.storage.local.set({
-          draft: { kind: "answer", text: result.answer ?? "Nothing found." },
+          draft: { kind: "answer", text: result.answer ?? "Nothing found.", events: result.queryEvents },
         });
       } else if (result.actions.length > 0) {
         // A single match is safe to default-select (matches the panel's
