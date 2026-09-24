@@ -1,6 +1,6 @@
 # v1 build tasks
 
-Tracks implementation against `SPEC.md`. All code-side tasks are done, including the follow-on features below. It's been manually verified once locally with real credentials (`SETUP.md`), and a Vercel project + domain now exist — but production env vars aren't set yet, so nothing has actually run at `https://kinroo.ai` end-to-end.
+Tracks implementation against `SPEC.md`. All code-side tasks are done, including the follow-on features below. It's been manually verified locally with real credentials (`SETUP.md`), and now end-to-end in production too: connect, compose-create, and upcoming events all verified working against the real `https://kinroo.ai` deployment with a real Google account. Email ingest still needs a live run (see below).
 
 ## Backend (`web/`)
 - [x] Drizzle schema + config: `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`, `waitlist_signups`
@@ -48,7 +48,7 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Manual walkthrough with real credentials, local dev only — connect, compose-create, query, edit/cancel, recurring, conflict detection all verified against a real Google account (see `SETUP.md`)
 - [x] Side-panel migration spot-checked headlessly (Chromium `--load-extension`, real manifest/service worker, no console errors; ready/confirm views screenshotted in light and dark mode) — not a substitute for clicking through it in real Chrome, which still needs doing once at a desk
 - [ ] Manual walkthrough of email ingest end-to-end (needs a real domain + public deployment — see `SETUP.md` §10)
-- [ ] Production deployment walkthrough — CI/CD and the Vercel project exist now (see below); an actual signed-in run against `https://kinroo.ai` hasn't happened yet
+- [x] Production deployment walkthrough — connect, compose-create, and upcoming events verified working against the real `https://kinroo.ai` deployment and a real Google account. Session auth had to move off the standard `Authorization` header to a custom `x-kinroo-session` one — Vercel's Deployment Protection intercepts `Authorization` even on domains meant to be exempt from it.
 
 ## Explicitly not in this pass
 - Family/multi-account, WhatsApp, proactive notifications, per-occurrence recurring edits — per `SPEC.md`.
@@ -57,6 +57,6 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Deploy `web/` to Vercel (project `kinroo-ai`, root directory `web`)
 - [x] Point `kinroo.ai` at Vercel (apex + `www`, both verified) — DNS is on Namecheap
 - [x] GitHub Actions CI (typecheck/build/test) on every PR and push to `main`, `enable_pr_auto_merge` used going forward
-- [ ] Add production env vars in the Vercel dashboard (`DATABASE_URL` on a separate prod Neon branch, `GOOGLE_CLIENT_ID`/`SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`)
+- [x] Add production env vars in the Vercel dashboard (`DATABASE_URL` on a separate prod Neon branch, `GOOGLE_CLIENT_ID`/`SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`) — `SENDGRID_API_KEY`/`EMAIL_INGEST_*` still pending, only needed for email ingest
 - [ ] Branch protection on `main` requiring the CI `build` check (so auto-merge actually gates on green CI instead of merging immediately)
 - [ ] Verify email ingest end-to-end once there's a public HTTPS URL for the SendGrid webhook
