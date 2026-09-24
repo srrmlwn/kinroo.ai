@@ -16,5 +16,5 @@ export async function GET(request: Request) {
     .limit(1);
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  return Response.json({ email: user.email, name: user.name });
+  return Response.json({ email: user.email, name: user.name, pictureUrl: user.pictureUrl });
 }

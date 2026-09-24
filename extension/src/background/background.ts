@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "connect-google") return undefined;
 
   connectGoogle()
-    .then((result) => sendResponse({ ok: true, email: result.email }))
+    .then((result) => sendResponse({ ok: true, email: result.email, pictureUrl: result.pictureUrl }))
     .catch((err) =>
       sendResponse({ ok: false, error: err instanceof Error ? err.message : "Sign-in failed" }),
     );

@@ -29,7 +29,7 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   return res;
 }
 
-export async function getMe(): Promise<{ email: string; name?: string }> {
+export async function getMe(): Promise<{ email: string; name?: string; pictureUrl?: string }> {
   const res = await apiFetch("/api/auth/me", { method: "GET" });
   if (!res.ok) throw new ApiError("Could not load account", res.status);
   return res.json();
