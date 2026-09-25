@@ -68,7 +68,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       query_start: {
         type: "string",
         description:
-          "ISO 8601 datetime — only when intent is 'query' and the question names a time period ('this weekend', 'on Saturday'). Omit for a question about a specific event with no date in it.",
+          "ISO 8601 datetime — only when intent is 'query' and the question names a time period ('this weekend', 'on Saturday'). Omit for a question about a specific event with no date in it. 'Next', 'upcoming', and 'coming up' are not a time period — omit for those too; the next occurrence may well be later today.",
       },
       query_end: {
         type: "string",

@@ -95,7 +95,11 @@ async function answerBySelection(
   events: CalendarEvent[];
   usage: { promptTokens: number; completionTokens: number; latencyMs: number };
 }> {
-  const start = range?.start ?? referenceDate.toISOString();
+  // "Next"/"upcoming" questions are about whatever comes first from now, so
+  // a range Claude inferred for them mustn't skip the rest of today.
+  const asksForNext = /\b(next|upcoming|coming up)\b/i.test(question);
+  const now = referenceDate.toISOString();
+  const start = range && !(asksForNext && Date.parse(range.start) > referenceDate.getTime()) ? range.start : now;
   const end = range?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
   const windowEvents = (await listEvents(userId, calendarId, start, end)).slice(0, MAX_EVENTS_FOR_SELECTION);
 

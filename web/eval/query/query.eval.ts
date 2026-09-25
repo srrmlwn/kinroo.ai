@@ -8,13 +8,22 @@
 //
 // Needs ANTHROPIC_API_KEY (from the environment or web/.env.local). Costs
 // roughly $0.30 per full run on Claude Haiku 4.5.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, it, vi, beforeAll, afterAll } from "vitest";
 import { CASES, type QueryCase } from "./cases";
 import { EVENTS, REFERENCE_DATE, TIMEZONE, listEventsInRange } from "./dataset";
 
+// Each case runs inside its own store, so the calendar reads it made can be
+// shown next to a miss even with cases running concurrently.
+type CalendarRead = { timeMin: string; timeMax: string; count: number };
+const reads = new AsyncLocalStorage<CalendarRead[]>();
+
 vi.mock("../../src/lib/google-calendar", () => ({
-  listEvents: async (_userId: string, _calendarId: string, timeMin: string, timeMax: string) =>
-    listEventsInRange(timeMin, timeMax),
+  listEvents: async (_userId: string, _calendarId: string, timeMin: string, timeMax: string) => {
+    const events = listEventsInRange(timeMin, timeMax);
+    reads.getStore()?.push({ timeMin, timeMax, count: events.length });
+    return events;
+  },
 }));
 vi.mock("../../src/lib/user-settings", () => ({
   getUserSettings: async () => ({ timezone: TIMEZONE, defaultCalendarId: "eval", defaultEventDurationMin: 30 }),
@@ -37,6 +46,7 @@ interface Outcome {
   gotYesNo?: string;
   intent?: string;
   usedLlm?: boolean;
+  calendarReads: CalendarRead[];
   error?: string;
 }
 
@@ -55,6 +65,11 @@ export function judge(testCase: QueryCase, got: string[], gotYesNo: string | und
 }
 
 async function runCase(testCase: QueryCase): Promise<Outcome> {
+  const calendarReads: CalendarRead[] = [];
+  return reads.run(calendarReads, () => runCaseInner(testCase, calendarReads));
+}
+
+async function runCaseInner(testCase: QueryCase, calendarReads: CalendarRead[]): Promise<Outcome> {
   try {
     const result = await parseInput("eval-user", { kind: "text", text: testCase.question }, "eval");
     const got = result.intent === "query" ? (result.queryEvents ?? []).map((e) => e.id) : [];
@@ -66,9 +81,10 @@ async function runCase(testCase: QueryCase): Promise<Outcome> {
       gotYesNo,
       intent: result.intent,
       usedLlm: result.usedLlm,
+      calendarReads,
     };
   } catch (err) {
-    return { testCase, pass: false, got: [], error: String(err) };
+    return { testCase, pass: false, got: [], calendarReads, error: String(err) };
   }
 }
 
@@ -95,6 +111,17 @@ function describeExpectation(testCase: QueryCase): string {
         ? expect.oneOf.map((set) => `[${set.join(", ")}]`).join(" or ")
         : `next ${expect.next}`;
   return testCase.yesNo ? `${testCase.yesNo.toUpperCase()} + ${base}` : base;
+}
+
+function formatLocal(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: TIMEZONE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 const results = new Map<Strategy, Outcome[]>();
@@ -130,6 +157,9 @@ describe("query eval", () => {
           ? `ERROR ${o.error}`
           : `${o.gotYesNo ? `${o.gotYesNo.toUpperCase()} + ` : ""}${o.got.join(", ") || "(nothing)"}${o.intent !== "query" ? ` [intent=${o.intent}]` : ""}${o.usedLlm === false ? " [fast path]" : ""}`;
         lines.push(`  ✗ ${o.testCase.question}`, `      want: ${describeExpectation(o.testCase)}`, `      got:  ${got}`);
+        for (const read of o.calendarReads) {
+          lines.push(`      read: ${formatLocal(read.timeMin)} → ${formatLocal(read.timeMax)} (${read.count} events)`);
+        }
       }
     }
     process.stdout.write(lines.join("\n") + "\n");

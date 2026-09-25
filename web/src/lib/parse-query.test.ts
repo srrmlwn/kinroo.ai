@@ -124,6 +124,23 @@ describe("parseInput: answering a question by letting Claude pick events (defaul
     expect(selectAnswerEvents).not.toHaveBeenCalled();
   });
 
+  it("starts a 'next' question's window now, even if Claude's range starts later", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T10:00:00-07:00"));
+    try {
+      extractWithClaude.mockResolvedValue(
+        claudeResult({ queryRange: { start: "2026-09-26T00:00:00-07:00", end: "2026-10-02T23:59:59-07:00" } }),
+      );
+      selectAnswerEvents.mockResolvedValue(selection({ eventIds: [] }));
+
+      await parseInput("user-1", { kind: "text", text: "When is Sahana's next gymnastics class?" }, "extension");
+
+      expect(listEvents.mock.calls[0].slice(2)).toEqual(["2026-09-25T17:00:00.000Z", "2026-10-02T23:59:59-07:00"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("only fetches the question's own range when Claude found one", async () => {
     extractWithClaude.mockResolvedValue(
       claudeResult({ queryRange: { start: "2026-09-27T00:00:00-07:00", end: "2026-09-27T12:00:00-07:00" } }),
