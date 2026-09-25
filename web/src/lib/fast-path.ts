@@ -154,6 +154,8 @@ const LISTING_WORDS = new Set([
   "what", "whats", "what's", "do", "i", "we", "have", "has", "got", "any", "anything", "plans",
   "plan", "planned", "events", "event", "is", "are", "there", "on", "for", "going", "happening",
   "show", "me", "my", "our", "schedule", "calendar", "look", "looks", "like", "does", "the",
+  // "How many events are on Sunday" is the same list, counted.
+  "how", "many",
 ]);
 
 function isPlainListingQuestion(textWithoutDate: string): boolean {

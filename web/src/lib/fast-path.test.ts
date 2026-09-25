@@ -225,6 +225,7 @@ describe("fastPathQueryRange", () => {
     "do I have anything tomorrow?",
     "show me my schedule for Saturday",
     "anything on Tuesday",
+    "How many events are on Sunday?",
   ])("answers the plain listing question %j without Claude", (text) => {
     expect(fastPathQueryRange(text, REF, TZ)).not.toBeNull();
   });
@@ -235,6 +236,7 @@ describe("fastPathQueryRange", () => {
     "what's my first thing Sunday",
     "anything after 6pm this week",
     "when is Sahana's gymnastics on Friday",
+    "how many classes does Sahana have on Saturday",
   ])("defers %j to Claude, since it asks for part of the range", (text) => {
     expect(fastPathQueryRange(text, REF, TZ)).toBeNull();
   });
