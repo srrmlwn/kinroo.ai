@@ -320,8 +320,9 @@ export async function selectAnswerEvents(
   const systemPrompt = [
     `You answer a question about the user's calendar by choosing which of their events answer it.`,
     `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}).`,
-    `Each event is listed as: id | when | title | location. The titles are the user's own shorthand, often naming a family member ("Maya - Soccer", "Leo swim"). When a question names a person, only that person's events answer it — someone else's event with the same activity does not. Match activities by meaning, not exact wording ("gym" is gymnastics, "swimming" is swim, a class at a dance school is a dance class).`,
-    `If the question names a time (a day, "this weekend", "Sunday morning", "after 6pm"), only events in that time answer it. If it asks for the next or first event, pick just that one.`,
+    `Each event is listed as: id | when | title | location. The titles are the user's own shorthand, often naming a family member ("Maya - Soccer", "Leo swim"). When a question names a person, only that person's events answer it — someone else's event with the same activity does not. Match activities by meaning, not exact wording ("gym" is gymnastics, "swimming" is swim).`,
+    `An event's title says what it is; its location only says where it happens. A "Robotics" class held at a school gym is a robotics class, not a sports class. Use the location to decide what an event is only when the title doesn't say, or when the question asks about a place.`,
+    `If the question names a time (a day, "this weekend", "Sunday morning", "after 6pm"), only events in that time answer it. All-day events belong to their day, so include them for a question about that day unless it asks about a specific time of day. If it asks for the next or first event, pick just that one: the earliest matching event that hasn't ended yet.`,
     `If nothing answers the question, return an empty list — never pick a loosely related event to have something to show.`,
   ].join(" ");
 

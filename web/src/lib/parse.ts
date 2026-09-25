@@ -297,6 +297,12 @@ export async function parseInput(
       forceCreateIntent: false,
     },
   );
+  // Claude sometimes calls a plain question "unknown" when it doesn't sound
+  // like a scheduling request ("When does Step One Foods ship?"). If the
+  // text is shaped like a question, answer it from the calendar anyway —
+  // the selection step returns nothing when no event fits, so a question
+  // that really isn't about the calendar still ends in "nothing matches".
+  const intent = result.intent === "unknown" && isLikelyQuery ? "query" : result.intent;
 
   let answer: string | undefined;
   let answerLead: string | undefined;
@@ -309,7 +315,7 @@ export async function parseInput(
   let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
 
   const validQueryRange = validRangeOrUndefined(result.queryRange);
-  if (result.intent === "query" && queryAnswerStrategy() === "select") {
+  if (intent === "query" && queryAnswerStrategy() === "select") {
     const selected = await answerBySelection(
       userId,
       userSettings.defaultCalendarId,
@@ -322,7 +328,7 @@ export async function parseInput(
     usage.promptTokens += selected.usage.promptTokens;
     usage.completionTokens += selected.usage.completionTokens;
     usage.latencyMs += selected.usage.latencyMs;
-  } else if (result.intent === "query" && result.searchQuery) {
+  } else if (intent === "query" && result.searchQuery) {
     ({ answer, events: queryEvents } = await answerEventLookup(
       userId,
       userSettings.defaultCalendarId,
@@ -331,19 +337,19 @@ export async function parseInput(
       validQueryRange,
       referenceDate,
     ));
-  } else if (result.intent === "query" && validQueryRange) {
+  } else if (intent === "query" && validQueryRange) {
     ({ answer, events: queryEvents } = await answerQuery(
       userId,
       userSettings.defaultCalendarId,
       userSettings.timezone,
       validQueryRange,
     ));
-  } else if (result.intent === "update" || result.intent === "delete") {
+  } else if (intent === "update" || intent === "delete") {
     actions = await findEventActions(
       userId,
       userSettings.defaultCalendarId,
       userSettings.timezone,
-      result.intent,
+      intent,
       result.searchQuery ?? text,
       result.searchRange,
       result.changes,
@@ -357,7 +363,7 @@ export async function parseInput(
     inputType: "text",
     usedLlm: true,
     model: result.model,
-    intent: result.intent,
+    intent: intent,
     candidateCount: actions.length,
     promptTokens: usage.promptTokens,
     completionTokens: usage.completionTokens,
@@ -365,7 +371,7 @@ export async function parseInput(
   });
 
   return {
-    intent: result.intent,
+    intent: intent,
     actions,
     answer,
     answerLead,

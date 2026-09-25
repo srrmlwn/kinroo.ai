@@ -105,6 +105,25 @@ describe("parseInput: answering a question by letting Claude pick events (defaul
     expect(result.answer).toBe("Nothing on your calendar matches that.");
   });
 
+  it("answers a question Claude classified as 'unknown' from the calendar anyway", async () => {
+    extractWithClaude.mockResolvedValue(claudeResult({ intent: "unknown" }));
+    selectAnswerEvents.mockResolvedValue(selection({ eventIds: ["e3"] }));
+
+    const result = await parseInput("user-1", { kind: "text", text: "When does Step One Foods ship?" }, "extension");
+
+    expect(result.intent).toBe("query");
+    expect(result.queryEvents?.map((e) => e.id)).toEqual(["f1"]);
+  });
+
+  it("leaves non-question text Claude couldn't classify as 'unknown'", async () => {
+    extractWithClaude.mockResolvedValue(claudeResult({ intent: "unknown" }));
+
+    const result = await parseInput("user-1", { kind: "text", text: "hello there" }, "extension");
+
+    expect(result.intent).toBe("unknown");
+    expect(selectAnswerEvents).not.toHaveBeenCalled();
+  });
+
   it("only fetches the question's own range when Claude found one", async () => {
     extractWithClaude.mockResolvedValue(
       claudeResult({ queryRange: { start: "2026-09-27T00:00:00-07:00", end: "2026-09-27T12:00:00-07:00" } }),
