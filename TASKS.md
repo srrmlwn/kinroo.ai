@@ -61,3 +61,6 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Add production env vars in the Vercel dashboard (`DATABASE_URL` on a separate prod Neon branch, `GOOGLE_CLIENT_ID`/`SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`) — `SENDGRID_API_KEY`/`EMAIL_INGEST_*` still pending, only needed for email ingest
 - [x] Branch protection on `main` requiring the CI `build` check (so auto-merge actually gates on green CI instead of merging immediately)
 - [ ] Verify email ingest end-to-end once there's a public HTTPS URL for the SendGrid webhook
+
+## Future ideas (not started)
+- [ ] Widen `lib/fast-path.ts`'s regex/chrono-node coverage using real query patterns — the misses already surfaced in `web/eval/query/` (`npm run eval:query`, see its `cases.ts`) and in `llm_calls` production telemetry (e.g. recurring phrasing like "every Monday", common edit/cancel phrasings). The fast path is the real lever for cutting Claude fallback rate, since it's the only call site with zero cost/latency — every request currently hits exactly one Claude call (`extractWithClaude` in `lib/claude.ts`, already on the cheapest current model) only when the fast path can't confidently handle it, and it skips recurring phrasing entirely today.
