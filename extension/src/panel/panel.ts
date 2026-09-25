@@ -11,7 +11,14 @@ import {
 } from "../api";
 import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
-import type { EventAction, EditableAction, ParseResponse, CalendarEvent, CreateEventsResponse } from "../types";
+import type {
+  EventAction,
+  EventCandidate,
+  EditableAction,
+  ParseResponse,
+  CalendarEvent,
+  CreateEventsResponse,
+} from "../types";
 
 interface ConfirmingState {
   actions: EditableAction[];
@@ -189,12 +196,47 @@ function persistDraft(view: View) {
 
 function toDatetimeLocalValue(iso: string): string {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fromDatetimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
+  return value ? new Date(value).toISOString() : "";
+}
+
+// Mirrors the server's isCandidateComplete: a parse can leave title/start/end
+// empty when the source never stated them, and the confirm button stays
+// disabled until the user fills them in.
+function isCandidateComplete(candidate: EventCandidate): boolean {
+  return (
+    candidate.title.trim() !== "" &&
+    !Number.isNaN(Date.parse(candidate.start)) &&
+    !Number.isNaN(Date.parse(candidate.end))
+  );
+}
+
+function isActionComplete(action: EventAction): boolean {
+  return action.type === "delete" || isCandidateComplete(action.candidate);
+}
+
+const FALLBACK_DURATION_MS = 60 * 60_000;
+
+// A start edit leaves the end alone while it's still after the new start.
+// Otherwise (the start moved past it, or the event had no times at all yet)
+// the end follows the start, keeping the event's length or defaulting to an
+// hour, so setting a start is enough to make the event saveable.
+function endForNewStart(candidate: EventCandidate, newStart: string): string {
+  const newStartMs = Date.parse(newStart);
+  if (Number.isNaN(newStartMs)) return candidate.end;
+  const oldEndMs = Date.parse(candidate.end);
+  if (!Number.isNaN(oldEndMs) && oldEndMs > newStartMs) return candidate.end;
+  const oldStartMs = Date.parse(candidate.start);
+  const duration =
+    !Number.isNaN(oldStartMs) && !Number.isNaN(oldEndMs) && oldEndMs > oldStartMs
+      ? oldEndMs - oldStartMs
+      : FALLBACK_DURATION_MS;
+  return new Date(newStartMs + duration).toISOString();
 }
 
 // "Today" / "Tomorrow" / "Friday" / "Friday, Oct 3" — the heading each
@@ -732,7 +774,7 @@ async function handleConfirm(current: Extract<View, { kind: "ready" }>) {
   const confirming = current.confirming;
   if (!confirming) return;
   const selected = confirming.actions.filter((a) => a.selected);
-  if (selected.length === 0) return;
+  if (selected.length === 0 || selected.some((a) => !isActionComplete(a.action))) return;
   setState({ ...current, busy: true, confirming: { ...confirming, error: undefined } });
   try {
     const result = await applyActions(selected.map((a) => a.action));
@@ -1044,13 +1086,17 @@ function renderEditableFields(action: Extract<EventAction, { type: "create" | "u
     action.type === "create" && c.recurrence?.length
       ? `<p class="recurrence-note">🔁 ${escapeHtml(formatRecurrence(c.recurrence))}</p>`
       : "";
+  const hasTimes = !Number.isNaN(Date.parse(c.start)) && !Number.isNaN(Date.parse(c.end));
+  const timeSummary = hasTimes
+    ? `<span class="candidate-time-date">${escapeHtml(formatHumanDate(c.start))}</span>
+        <span class="candidate-time-range">${escapeHtml(formatHumanTimeRange(c.start, c.end))}</span>`
+    : `<span class="candidate-time-date">Add date and time</span>`;
   return `
     ${originalNote}
-    <input type="text" class="cand-title candidate-title-input" data-index="${i}" value="${escapeAttr(c.title)}" aria-label="Event title" />
+    <input type="text" class="cand-title candidate-title-input${c.title.trim() ? "" : " missing"}" data-index="${i}" value="${escapeAttr(c.title)}" placeholder="Add a title" aria-label="Event title" />
     <div class="candidate-time-edit">
-      <button type="button" class="candidate-time-summary" data-index="${i}" aria-label="Edit date and time">
-        <span class="candidate-time-date">${escapeHtml(formatHumanDate(c.start))}</span>
-        <span class="candidate-time-range">${escapeHtml(formatHumanTimeRange(c.start, c.end))}</span>
+      <button type="button" class="candidate-time-summary${hasTimes ? "" : " missing"}" data-index="${i}" aria-label="Edit date and time">
+        ${timeSummary}
       </button>
       <div class="candidate-times">
         <input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" aria-label="Start time" />
@@ -1105,6 +1151,7 @@ function renderConfirming(
 
   const selectedCount = confirming.actions.filter((a) => a.selected).length;
   const count = confirming.actions.length;
+  const hasIncomplete = confirming.actions.some((a) => a.selected && !isActionComplete(a.action));
 
   const leadText =
     actionType === "delete"
@@ -1144,9 +1191,10 @@ function renderConfirming(
     <p class="confirm-trust">${trustText}</p>
     <div class="candidates">${rows}</div>
     ${confirming.error ? `<p class="notice error">${escapeHtml(confirming.error)}</p>` : ""}
+    ${hasIncomplete ? `<p class="confirm-missing">Fill in the missing details to continue.</p>` : ""}
     <div class="confirm-actions">
       <button id="confirm-dismiss" class="link" ${busy ? "disabled" : ""}>${dismissLabel}</button>
-      <button id="confirm" class="primary" ${busy || selectedCount === 0 ? "disabled" : ""}>
+      <button id="confirm" class="primary" ${busy || selectedCount === 0 || hasIncomplete ? "disabled" : ""}>
         ${busy ? confirmBusyLabel : confirmLabel}
       </button>
     </div>
@@ -1387,11 +1435,15 @@ function attachHandlers() {
       document.querySelectorAll<HTMLInputElement>(".cand-start").forEach((el) => {
         el.addEventListener("change", () => {
           const i = Number(el.dataset.index);
+          const start = fromDatetimeLocalValue(el.value);
           const actions = confirming.actions.map((item, idx) =>
-            idx === i
+            idx === i && item.action.type !== "delete"
               ? {
                   ...item,
-                  action: withCandidatePatch(item.action, { start: fromDatetimeLocalValue(el.value) }),
+                  action: withCandidatePatch(item.action, {
+                    start,
+                    end: endForNewStart(item.action.candidate, start),
+                  }),
                   conflicts: undefined,
                 }
               : item,

@@ -138,6 +138,42 @@ describe("fastPathExtractCreate", () => {
     expect(result?.location).toBe("Cafe Luna");
   });
 
+  it("returns null for text copied off an event page (headings, buttons, address)", () => {
+    expect(
+      fastPathExtractCreate(
+        "Event details   Sunday, September 27, 2026 3:00PM - 4:30PM  Add to calendar Tumbles Ballard 5680 24th Ave NW Seattle, WA 98107  View Map",
+        REF,
+        TZ,
+        30,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when the leftover title contains a street address", () => {
+    expect(fastPathExtractCreate("party Saturday 3pm 5680 24th Ave NW", REF, TZ, 30)).toBeNull();
+  });
+
+  it("returns null when the leftover title contains a state and ZIP", () => {
+    expect(fastPathExtractCreate("party Saturday 3pm Seattle, WA 98107", REF, TZ, 30)).toBeNull();
+  });
+
+  it("returns null when the leftover title is too long to be a typed title", () => {
+    expect(
+      fastPathExtractCreate(
+        "tomorrow at 9am please remember to bring the signed permission slip and snacks for everyone",
+        REF,
+        TZ,
+        30,
+      ),
+    ).toBeNull();
+  });
+
+  it("still handles a short typed phrase with an 'at <place>' location", () => {
+    const result = fastPathExtractCreate("lunch tomorrow at noon at 5680 24th Ave NW", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("lunch");
+  });
+
   it("leaves location undefined when there's no trailing 'at <place>'", () => {
     const result = fastPathExtractCreate("doctor's appointment at 9am tomorrow", REF, TZ, 30);
     expect(result).not.toBeNull();

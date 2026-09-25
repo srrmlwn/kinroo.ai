@@ -35,17 +35,21 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             title: {
               type: "string",
               description:
-                "The actual name of the event or activity (e.g. a class, appointment, or meeting name) — never a field label from the source text like 'Meets' or 'Activity'.",
+                "The actual name of the event or activity (e.g. a class, appointment, or meeting name) — never a field label from the source text like 'Meets' or 'Activity', and never a page heading or button label like 'Event details' or 'Add to calendar'. Omit if nothing in the input names the event.",
             },
             start: {
               type: "string",
-              description: "ISO 8601 datetime with UTC offset",
+              description:
+                "ISO 8601 datetime with UTC offset. Omit if the input gives no date or time for this event.",
             },
             end: {
               type: "string",
-              description: "ISO 8601 datetime with UTC offset",
+              description: "ISO 8601 datetime with UTC offset. Omit whenever start is omitted.",
             },
-            location: { type: "string" },
+            location: {
+              type: "string",
+              description: "Venue name and/or street address, if the input gives one.",
+            },
             recurrence: {
               type: "string",
               description:
@@ -58,7 +62,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
                 "Only alongside recurrence: ISO 8601 datetimes (with UTC offset) for individual occurrences the text explicitly excludes (e.g. 'except Thursday, November 26, 2026'). Use the same time-of-day as `start`. Omit if the text names no exceptions.",
             },
           },
-          required: ["title", "start", "end"],
+          required: [],
         },
       },
       query_start: {
@@ -107,6 +111,10 @@ export function toIcalUtc(iso: string): string {
   return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
+function addMinutes(iso: string, minutes: number): string {
+  return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
+}
+
 export type ClaudeInput =
   | { kind: "text"; text: string }
   | { kind: "image"; base64: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }
@@ -147,6 +155,7 @@ export async function extractWithClaude(
     `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}). Resolve all relative dates and times ("tomorrow", "next Tuesday", "in an hour") against this.`,
     `Every start/end datetime you output must be ISO 8601 with a UTC offset (e.g. 2026-09-19T09:00:00-07:00).`,
     `If a candidate event has no explicit duration or end time, set end = start + ${opts.defaultDurationMin} minutes.`,
+    `If the input gives no date or time for an event, omit its start and end rather than guessing one, and if nothing names the event, omit its title — the user fills in whatever is missing before anything is saved.`,
     opts.forceCreateIntent
       ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
       : [
@@ -192,9 +201,9 @@ export async function extractWithClaude(
   const parsed = toolUse.input as {
     intent: "create" | "query" | "update" | "delete" | "unknown";
     candidates?: Array<{
-      title: string;
-      start: string;
-      end: string;
+      title?: string;
+      start?: string;
+      end?: string;
       location?: string;
       recurrence?: string;
       exception_dates?: string[];
@@ -210,9 +219,9 @@ export async function extractWithClaude(
   return {
     intent: opts.forceCreateIntent ? "create" : parsed.intent,
     candidates: (parsed.candidates ?? []).map((c) => ({
-      title: c.title,
-      start: c.start,
-      end: c.end,
+      title: c.title?.trim() ?? "",
+      start: c.start ?? "",
+      end: c.start ? (c.end ?? addMinutes(c.start, opts.defaultDurationMin)) : "",
       location: c.location,
       timezone: opts.timezone,
       recurrence: c.recurrence

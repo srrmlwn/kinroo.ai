@@ -50,6 +50,22 @@ function timezoneOffsetMinutes(timeZone: string, date: Date): number {
   return sign * (hours * 60 + minutes);
 }
 
+const MAX_FAST_PATH_TITLE_WORDS = 8;
+
+// A street address ("5680 24th Ave NW") or a state + ZIP ("WA 98107").
+const ADDRESS_PATTERN =
+  /\b\d{1,6}\s+(?:[\w.'-]+\s+){0,3}(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|pkwy|parkway|hwy|highway)\b|\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i;
+
+// Everything left over after the date/time match becomes the title, which
+// is only right for short typed phrases. Text copied off a web page or an
+// email ("Event details Sunday, September 27 3:00PM Add to calendar Tumbles
+// Ballard 5680 24th Ave NW ...") leaves a long run of headings, button
+// labels, and an address — that needs Claude to pick apart, not a bigger
+// regex, so the fast path bails instead.
+function looksLikeShortTitle(title: string): boolean {
+  return title.split(/\s+/).length <= MAX_FAST_PATH_TITLE_WORDS && !ADDRESS_PATTERN.test(title);
+}
+
 // Regex/date-library fast path for the common "<title> at <time>" phrasing.
 // Returns null when it isn't confident, so the caller falls back to Claude
 // rather than writing a bad title.
@@ -88,6 +104,7 @@ export function fastPathExtractCreate(
   title = title.replace(/^(at|on|for|,|-)\s+/i, "").replace(/\s+(at|on)$/i, "");
 
   if (title.length < 2) return null;
+  if (!looksLikeShortTitle(title)) return null;
 
   return {
     title,
