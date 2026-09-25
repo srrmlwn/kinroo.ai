@@ -96,6 +96,8 @@ If step 9 fails, the most likely culprits in order: `extension/config.json` stil
 
 Skip this section unless you're standing up the `add@<domain>` email channel — everything else works without it. Needs a domain you control (SendGrid Inbound Parse requires DNS access; you can't use a `gmail.com` address here).
 
+SendGrid login: `kinroo.ai@gmail.com` — reusing the account from the `simple-family-calendar` prototype (see CLAUDE.md's "Prior art") rather than creating a new one, since one account supports multiple authenticated domains and Inbound Parse hosts.
+
 1. Pick a subdomain to receive on, e.g. `mail.kinroo.ai` — this is `EMAIL_INGEST_DOMAIN`.
 2. **SendGrid → Settings → Sender Authentication** — authenticate your root domain (adds the SPF/DKIM DNS records SendGrid gives you). Required for outbound confirmation emails to not get spam-filtered.
 3. **SendGrid → Settings → Inbound Parse → Add Host & URL**:
