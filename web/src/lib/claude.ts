@@ -35,17 +35,21 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             title: {
               type: "string",
               description:
-                "The actual name of the event or activity (e.g. a class, appointment, or meeting name) — never a field label from the source text like 'Meets' or 'Activity'.",
+                "The actual name of the event or activity (e.g. a class, appointment, or meeting name) — never a field label from the source text like 'Meets' or 'Activity', and never a page heading or button label like 'Event details' or 'Add to calendar'. Omit if nothing in the input names the event.",
             },
             start: {
               type: "string",
-              description: "ISO 8601 datetime with UTC offset",
+              description:
+                "ISO 8601 datetime with UTC offset. Omit if the input gives no date or time for this event.",
             },
             end: {
               type: "string",
-              description: "ISO 8601 datetime with UTC offset",
+              description: "ISO 8601 datetime with UTC offset. Omit whenever start is omitted.",
             },
-            location: { type: "string" },
+            location: {
+              type: "string",
+              description: "Venue name and/or street address, if the input gives one.",
+            },
             recurrence: {
               type: "string",
               description:
@@ -58,12 +62,13 @@ const EXTRACT_TOOL: Anthropic.Tool = {
                 "Only alongside recurrence: ISO 8601 datetimes (with UTC offset) for individual occurrences the text explicitly excludes (e.g. 'except Thursday, November 26, 2026'). Use the same time-of-day as `start`. Omit if the text names no exceptions.",
             },
           },
-          required: ["title", "start", "end"],
+          required: [],
         },
       },
       query_start: {
         type: "string",
-        description: "ISO 8601 datetime — only when intent is 'query'",
+        description:
+          "ISO 8601 datetime — only when intent is 'query' and the question names a time period ('this weekend', 'on Saturday'). Omit for a question about a specific event with no date in it.",
       },
       query_end: {
         type: "string",
@@ -72,7 +77,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       search_query: {
         type: "string",
         description:
-          "Only when intent is 'update' or 'delete': a short phrase describing the existing event to find (e.g. 'dentist appointment', 'team sync'), used to search the calendar for it. Omit otherwise.",
+          "When intent is 'update' or 'delete', or a 'query' that asks about one specific event rather than a time period (e.g. 'when is Maya's piano lesson'): a short phrase describing the existing event to find (e.g. 'dentist appointment', 'Maya piano lesson'), used to search the calendar by title. Keep any person's name in it — it's often what tells two similar events apart. Omit otherwise.",
       },
       search_start: {
         type: "string",
@@ -105,6 +110,10 @@ const EXTRACT_TOOL: Anthropic.Tool = {
 // of the ISO 8601 datetimes Claude returns for exception_dates into that form.
 export function toIcalUtc(iso: string): string {
   return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function addMinutes(iso: string, minutes: number): string {
+  return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
 }
 
 export type ClaudeInput =
@@ -147,10 +156,11 @@ export async function extractWithClaude(
     `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}). Resolve all relative dates and times ("tomorrow", "next Tuesday", "in an hour") against this.`,
     `Every start/end datetime you output must be ISO 8601 with a UTC offset (e.g. 2026-09-19T09:00:00-07:00).`,
     `If a candidate event has no explicit duration or end time, set end = start + ${opts.defaultDurationMin} minutes.`,
+    `If the input gives no date or time for an event, omit its start and end rather than guessing one, and if nothing names the event, omit its title — the user fills in whatever is missing before anything is saved.`,
     opts.forceCreateIntent
       ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
       : [
-          `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon") rather than a request to add something — in that case leave candidates empty and set query_start/query_end to the date range the question refers to.`,
+          `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon", "when is my dentist appointment") rather than a request to add something — in that case leave candidates empty. If it asks about a time period, set query_start/query_end to that range. If it asks about a specific event ("when is Maya's piano lesson", "where is the team offsite"), set search_query to describe it, and set query_start/query_end only if the question also gives a date hint.`,
           `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, and put only the fields that should change in changes. Only set search_start/search_end if the text itself gives a date/time hint for the event you're searching for ("tomorrow's dentist", "my Friday meeting") — if it gives none ("cancel my dentist appointment"), omit both rather than guessing a narrow range; the backend searches broadly by default when they're absent.`,
           `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
@@ -192,9 +202,9 @@ export async function extractWithClaude(
   const parsed = toolUse.input as {
     intent: "create" | "query" | "update" | "delete" | "unknown";
     candidates?: Array<{
-      title: string;
-      start: string;
-      end: string;
+      title?: string;
+      start?: string;
+      end?: string;
       location?: string;
       recurrence?: string;
       exception_dates?: string[];
@@ -210,9 +220,9 @@ export async function extractWithClaude(
   return {
     intent: opts.forceCreateIntent ? "create" : parsed.intent,
     candidates: (parsed.candidates ?? []).map((c) => ({
-      title: c.title,
-      start: c.start,
-      end: c.end,
+      title: c.title?.trim() ?? "",
+      start: c.start ?? "",
+      end: c.start ? (c.end ?? addMinutes(c.start, opts.defaultDurationMin)) : "",
       location: c.location,
       timezone: opts.timezone,
       recurrence: c.recurrence
@@ -234,6 +244,110 @@ export async function extractWithClaude(
         ? { start: parsed.search_start, end: parsed.search_end }
         : undefined,
     changes: parsed.changes,
+    model: DEFAULT_MODEL,
+    promptTokens: response.usage.input_tokens,
+    completionTokens: response.usage.output_tokens,
+    latencyMs: Date.now() - startedAt,
+  };
+}
+
+const SELECT_TOOL: Anthropic.Tool = {
+  name: "answer_calendar_question",
+  description:
+    "Records which of the listed calendar events answer the user's question, and, for a yes/no question, the yes/no answer. The app builds the reply shown to the user from the events you pick, so pick events only by their listed id — you cannot add, edit, or describe events here.",
+  input_schema: {
+    type: "object",
+    properties: {
+      event_ids: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Ids (e.g. 'e3') of the events that answer the question, in the order they occur. For a yes/no question, the events that justify the answer (the ones that make someone busy, or that match what was asked about). Empty if no event answers it.",
+      },
+      yes_no: {
+        type: "string",
+        enum: ["yes", "no"],
+        description:
+          "Only for a question answerable with yes or no ('am I free Saturday afternoon', 'does Leo have anything Monday'). Omit for every other question.",
+      },
+    },
+    required: ["event_ids"],
+  },
+};
+
+export interface AnswerSelection {
+  eventIds: string[];
+  yesNo?: "yes" | "no";
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  latencyMs: number;
+}
+
+// Second step of answering a calendar question: the caller has already
+// fetched the events in the relevant window, and Claude picks which of them
+// answer the question. Events are sent with short positional ids rather
+// than Google's event ids (shorter, and an id that isn't in the list is
+// easy to reject), and Claude only returns ids — the reply text is built in
+// code from the real events, so it can't state a time or place that isn't
+// on the calendar.
+export async function selectAnswerEvents(
+  question: string,
+  events: Array<{ title: string; start: string; end: string; location?: string }>,
+  opts: { timezone: string; referenceDate: Date },
+): Promise<AnswerSelection> {
+  const startedAt = Date.now();
+  const fmt = (iso: string, withTime: boolean) =>
+    new Date(iso).toLocaleString("en-US", {
+      timeZone: opts.timezone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}),
+    });
+  const eventLines = events.map((event, i) => {
+    const allDay = !event.start.includes("T");
+    const when = allDay ? `${fmt(event.start, false)} (all day)` : `${fmt(event.start, true)} – ${fmt(event.end, true)}`;
+    return `e${i + 1} | ${when} | ${event.title}${event.location ? ` | ${event.location}` : ""}`;
+  });
+
+  const referenceLabel = opts.referenceDate.toLocaleString("en-US", {
+    timeZone: opts.timezone,
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+
+  const systemPrompt = [
+    `You answer a question about the user's calendar by choosing which of their events answer it.`,
+    `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}).`,
+    `Each event is listed as: id | when | title | location. The titles are the user's own shorthand, often naming a family member ("Maya - Soccer", "Leo swim"). When a question names a person, only that person's events answer it — someone else's event with the same activity does not. Match activities by meaning, not exact wording ("gym" is gymnastics, "swimming" is swim, a class at a dance school is a dance class).`,
+    `If the question names a time (a day, "this weekend", "Sunday morning", "after 6pm"), only events in that time answer it. If it asks for the next or first event, pick just that one.`,
+    `If nothing answers the question, return an empty list — never pick a loosely related event to have something to show.`,
+  ].join(" ");
+
+  const response = await getClient().messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 1024,
+    system: systemPrompt,
+    tools: [SELECT_TOOL],
+    tool_choice: { type: "tool", name: "answer_calendar_question" },
+    messages: [
+      {
+        role: "user",
+        content: `Events:\n${eventLines.length ? eventLines.join("\n") : "(none)"}\n\nQuestion: ${question}`,
+      },
+    ],
+  });
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+  );
+  if (!toolUse) throw new Error("Claude did not return the expected tool call");
+  const parsed = toolUse.input as { event_ids?: unknown; yes_no?: unknown };
+
+  return {
+    eventIds: Array.isArray(parsed.event_ids) ? parsed.event_ids.filter((id): id is string => typeof id === "string") : [],
+    yesNo: parsed.yes_no === "yes" || parsed.yes_no === "no" ? parsed.yes_no : undefined,
     model: DEFAULT_MODEL,
     promptTokens: response.usage.input_tokens,
     completionTokens: response.usage.output_tokens,

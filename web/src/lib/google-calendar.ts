@@ -3,10 +3,13 @@ import { db } from "./db";
 import { oauthTokens } from "./db/schema";
 import { encrypt, decrypt } from "./crypto";
 
+// title/start/end are "" when the source never stated them (a pasted
+// snippet with no date, a page with no event name) — the confirm step makes
+// the user fill them in, and applyEventAction refuses to write without them.
 export interface EventCandidate {
   title: string;
-  start: string; // ISO 8601 datetime
-  end: string; // ISO 8601 datetime
+  start: string; // ISO 8601 datetime, or "" if unknown
+  end: string; // ISO 8601 datetime, or "" if unknown
   timezone?: string;
   location?: string;
   // iCalendar lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10", "EXDATE:20261126T180000Z"].
@@ -198,11 +201,22 @@ export async function deleteEvent(
 // list (api/events/route.ts) and by the email reply-to-confirm flow
 // (api/email/inbound/route.ts), so both channels write through the same
 // code path once something is confirmed.
+export function isCandidateComplete(candidate: EventCandidate): boolean {
+  return (
+    candidate.title.trim() !== "" &&
+    !Number.isNaN(Date.parse(candidate.start)) &&
+    !Number.isNaN(Date.parse(candidate.end))
+  );
+}
+
 export async function applyEventAction(
   userId: string,
   calendarId: string,
   action: EventAction,
 ): Promise<CalendarEvent | void> {
+  if (action.type !== "delete" && !isCandidateComplete(action.candidate)) {
+    throw new Error("Event needs a title, start, and end before it can be saved");
+  }
   if (action.type === "create") return insertEvent(userId, calendarId, action.candidate);
   if (action.type === "update") return updateEvent(userId, calendarId, action.eventId, action.candidate);
   return deleteEvent(userId, calendarId, action.eventId);

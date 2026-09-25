@@ -1,11 +1,16 @@
 import * as chrono from "chrono-node";
 import type { EventCandidate } from "./google-calendar";
 
+// A question word or phrase at the start, or a trailing "?". The negative
+// lookahead keeps pasted invite fields ("When: Sunday 3pm", "What: Maya's
+// party") from reading as questions, and "do"/"did"/"will" only count with
+// "I"/"we" after them so "Do laundry Saturday" is still a create.
 const QUESTION_PATTERN =
-  /^(do i|am i|what'?s|whats|when'?s|is there|are there|how many|any (plans|events)|what do i have)\b/i;
+  /^(?:(?:what|whats|what's|when|whens|when's|where|which|who|how)\b(?!\s*:)|(?:do|did|will|am|have|can) (?:i|we)\b|(?:is|are) (?:there|i|we)\b|any(?:thing)?\b|show me\b)/i;
 
 export function looksLikeQuery(text: string): boolean {
-  return QUESTION_PATTERN.test(text.trim());
+  const trimmed = text.trim();
+  return QUESTION_PATTERN.test(trimmed) || trimmed.endsWith("?");
 }
 
 const RECURRENCE_PATTERN =
@@ -50,6 +55,22 @@ function timezoneOffsetMinutes(timeZone: string, date: Date): number {
   return sign * (hours * 60 + minutes);
 }
 
+const MAX_FAST_PATH_TITLE_WORDS = 8;
+
+// A street address ("5680 24th Ave NW") or a state + ZIP ("WA 98107").
+const ADDRESS_PATTERN =
+  /\b\d{1,6}\s+(?:[\w.'-]+\s+){0,3}(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|pkwy|parkway|hwy|highway)\b|\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/i;
+
+// Everything left over after the date/time match becomes the title, which
+// is only right for short typed phrases. Text copied off a web page or an
+// email ("Event details Sunday, September 27 3:00PM Add to calendar Tumbles
+// Ballard 5680 24th Ave NW ...") leaves a long run of headings, button
+// labels, and an address — that needs Claude to pick apart, not a bigger
+// regex, so the fast path bails instead.
+function looksLikeShortTitle(title: string): boolean {
+  return title.split(/\s+/).length <= MAX_FAST_PATH_TITLE_WORDS && !ADDRESS_PATTERN.test(title);
+}
+
 // Regex/date-library fast path for the common "<title> at <time>" phrasing.
 // Returns null when it isn't confident, so the caller falls back to Claude
 // rather than writing a bad title.
@@ -88,6 +109,7 @@ export function fastPathExtractCreate(
   title = title.replace(/^(at|on|for|,|-)\s+/i, "").replace(/\s+(at|on)$/i, "");
 
   if (title.length < 2) return null;
+  if (!looksLikeShortTitle(title)) return null;
 
   return {
     title,
@@ -124,6 +146,25 @@ function zonedDayBoundaries(instant: Date, timeZone: string): { start: Date; end
   return { start, end };
 }
 
+// Words that only ask "what's on my calendar then". Any other word — a
+// name ("does Sasha have anything"), "free", "first", "next", "morning",
+// "after" — means the question wants something picked out of that range
+// rather than all of it, which needs Claude.
+const LISTING_WORDS = new Set([
+  "what", "whats", "what's", "do", "i", "we", "have", "has", "got", "any", "anything", "plans",
+  "plan", "planned", "events", "event", "is", "are", "there", "on", "for", "going", "happening",
+  "show", "me", "my", "our", "schedule", "calendar", "look", "looks", "like", "does", "the",
+]);
+
+function isPlainListingQuestion(textWithoutDate: string): boolean {
+  const words = textWithoutDate
+    .toLowerCase()
+    .replace(/[?.!,]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.every((word) => LISTING_WORDS.has(word));
+}
+
 // Deterministic date-range resolution for simple queries ("Saturday",
 // "tomorrow", "next week"). Returns null when chrono can't find a
 // reference, so the caller falls back to Claude for phrasing like
@@ -138,6 +179,9 @@ export function fastPathQueryRange(
   if (results.length === 0) return null;
 
   const result = results[0];
+  if (!isPlainListingQuestion(text.slice(0, result.index) + " " + text.slice(result.index + result.text.length))) {
+    return null;
+  }
   const start = result.start.date();
 
   if (result.start.isCertain("hour")) {
@@ -146,5 +190,15 @@ export function fastPathQueryRange(
   }
 
   const { start: dayStart, end: dayEnd } = zonedDayBoundaries(start, timezone);
+  // chrono resolves "this weekend" / "next weekend" to just the Saturday —
+  // stretch it through Sunday so a weekend question sees both days.
+  if (/\bweekend\b/i.test(text) && weekdayIn(start, timezone) === "Sat") {
+    const { end: sundayEnd } = zonedDayBoundaries(new Date(dayEnd.getTime() + 1), timezone);
+    return { start: dayStart, end: sundayEnd };
+  }
   return { start: dayStart, end: dayEnd };
+}
+
+function weekdayIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(instant);
 }

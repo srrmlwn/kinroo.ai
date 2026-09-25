@@ -1372,3 +1372,31 @@ input::placeholder {
     background: var(--accent-soft);
   }
 }
+
+/* A field the parse couldn't fill in (no event name, no date in the
+   source) — flagged in the danger colour until the user supplies it. */
+.cand-title.missing::placeholder,
+.candidate-time-summary.missing .candidate-time-date {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.cand-title.missing:not(:focus) {
+  box-shadow: inset 0 -1px 0 var(--danger);
+}
+
+.confirm-missing {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.confirm-missing svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}

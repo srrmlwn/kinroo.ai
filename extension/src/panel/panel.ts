@@ -12,7 +12,14 @@ import {
 import { getConfig } from "../config";
 import { annotateConflicts } from "../conflicts";
 import { addDays, isAllDay, isDateOnly, parseEventDate, toDateValue } from "../dates";
-import type { EventAction, EditableAction, ParseResponse, CalendarEvent, CreateEventsResponse } from "../types";
+import type {
+  EventAction,
+  EventCandidate,
+  EditableAction,
+  ParseResponse,
+  CalendarEvent,
+  CreateEventsResponse,
+} from "../types";
 
 interface ConfirmingState {
   actions: EditableAction[];
@@ -70,6 +77,8 @@ type View =
       // handleParsed) — when present, renderAnswer shows the same tiles as
       // the upcoming-events list instead of a plain bullet-point paragraph.
       answerEvents?: CalendarEvent[];
+      // "Yes." / "No." for a yes/no question, shown ahead of the answer.
+      answerLead?: string;
       // What was asked to produce `answer` — same "You said" purpose as
       // ConfirmingState.submittedText.
       answerQuery?: string;
@@ -203,6 +212,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       ...state,
       answer: draft.text,
       answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
       confirming: undefined,
       notice: undefined,
       noticeError: undefined,
@@ -247,7 +257,7 @@ function persistDraft(view: View) {
   const payload = view.confirming
     ? { kind: "confirming", actions: view.confirming.actions }
     : view.answer !== undefined
-      ? { kind: "answer", text: view.answer, events: view.answerEvents }
+      ? { kind: "answer", text: view.answer, events: view.answerEvents, lead: view.answerLead }
       : { kind: "ready", inputText };
   chrome.storage.local.set({ draft: payload }).catch(() => {});
 }
@@ -258,12 +268,47 @@ function persistDraft(view: View) {
 
 function toDatetimeLocalValue(iso: string): string {
   const d = parseEventDate(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fromDatetimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
+  return value ? new Date(value).toISOString() : "";
+}
+
+// Mirrors the server's isCandidateComplete: a parse can leave title/start/end
+// empty when the source never stated them, and the confirm button stays
+// disabled until the user fills them in.
+function isCandidateComplete(candidate: EventCandidate): boolean {
+  return candidate.title.trim() !== "" && hasTimes(candidate);
+}
+
+function hasTimes(candidate: EventCandidate): boolean {
+  return !Number.isNaN(Date.parse(candidate.start)) && !Number.isNaN(Date.parse(candidate.end));
+}
+
+function isActionComplete(action: EventAction): boolean {
+  return action.type === "delete" || isCandidateComplete(action.candidate);
+}
+
+const FALLBACK_DURATION_MS = 60 * 60_000;
+
+// A start edit leaves the end alone while it's still after the new start.
+// Otherwise (the start moved past it, or the event had no times at all yet)
+// the end follows the start, keeping the event's length or defaulting to an
+// hour, so setting a start is enough to make the event saveable.
+function endForNewStart(candidate: EventCandidate, newStart: string): string {
+  const newStartMs = Date.parse(newStart);
+  if (Number.isNaN(newStartMs)) return candidate.end;
+  const oldEndMs = Date.parse(candidate.end);
+  if (!Number.isNaN(oldEndMs) && oldEndMs > newStartMs) return candidate.end;
+  const oldStartMs = Date.parse(candidate.start);
+  const duration =
+    !Number.isNaN(oldStartMs) && !Number.isNaN(oldEndMs) && oldEndMs > oldStartMs
+      ? oldEndMs - oldStartMs
+      : FALLBACK_DURATION_MS;
+  return new Date(newStartMs + duration).toISOString();
 }
 
 // Non-breaking spaces so a narrow panel never wraps "3:00 / PM".
@@ -595,6 +640,7 @@ function enterReady(
     confirming?: ConfirmingState;
     answer?: string;
     answerEvents?: CalendarEvent[];
+    answerLead?: string;
   },
 ): void {
   avatarMenuOpen = false;
@@ -613,6 +659,7 @@ function enterReady(
     confirming: opts?.confirming,
     answer: opts?.answer,
     answerEvents: opts?.answerEvents,
+    answerLead: opts?.answerLead,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
@@ -631,6 +678,7 @@ async function restoreDraftAndEnter(email: string): Promise<void> {
     enterReady(email, {
       answer: draft.text,
       answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
     });
     return;
   }
@@ -764,9 +812,11 @@ function describeReview(actions: EditableAction[]): string {
     actions.length === 1
       ? first.action.type === "delete"
         ? `Review: cancel ${first.action.original.title}, ${formatEventTime(first.action.original.start, first.action.original.end)}.`
-        : `Review: ${first.action.candidate.title}, ${formatEventTime(first.action.candidate.start, first.action.candidate.end)}.`
+        : `Review: ${first.action.candidate.title.trim() || "untitled event"}, ${hasTimes(first.action.candidate) ? formatEventTime(first.action.candidate.start, first.action.candidate.end) : "no date yet"}.`
       : `${actions.length} events to review.`;
-  return conflicts ? `${summary} ${plural(conflicts, "overlap")} with your calendar.` : summary;
+  const missing = actions.some((a) => !isActionComplete(a.action)) ? " Some details are missing and need filling in." : "";
+  const withConflicts = conflicts ? `${summary} ${plural(conflicts, "overlap")} with your calendar.` : summary;
+  return withConflicts + missing;
 }
 
 // Shared by the compose box (handleSubmit) and the page-scan button
@@ -792,9 +842,10 @@ async function handleParsed(current: ReadyView, result: ParseResponse, submitted
       confirming: undefined,
       answer,
       answerEvents: result.queryEvents,
+      answerLead: result.answerLead,
       answerQuery: submittedText,
     });
-    announce(describeAnswer(answer, result.queryEvents));
+    announce(describeAnswer(answer, result.queryEvents, result.answerLead));
     return;
   }
 
@@ -1092,7 +1143,7 @@ async function handleConfirm(current: ReadyView) {
   const pending = confirming.actions
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.selected && !item.saved);
-  if (pending.length === 0) return;
+  if (pending.length === 0 || pending.some(({ item }) => !isActionComplete(item.action))) return;
   const kind = reviewKind(pending.map((p) => p.item));
   setState({ ...current, busy: true, confirming: { ...confirming, error: undefined } });
   announce(kind === "mixed" ? "Saving…" : VERB[kind].busy);
@@ -1455,7 +1506,7 @@ function renderReady(view: ReadyView): string {
   const followup = view.confirming
     ? `<section class="below-compose confirm-block" aria-labelledby="review-heading">${renderConfirming(view.confirming, view.busy, view.calendarLabel)}</section>`
     : view.answer !== undefined
-      ? `<section class="below-compose answer-block" aria-label="Answer">${renderAnswer(view.answer, view.answerEvents, view.answerQuery)}</section>`
+      ? `<section class="below-compose answer-block" aria-label="Answer">${renderAnswer(view.answer, view.answerEvents, view.answerQuery, view.answerLead)}</section>`
       : renderUpcoming(view);
 
   const sendLabel = view.busy ? "Working" : "Send";
@@ -1597,6 +1648,22 @@ function recurrenceStartWarning(start: string, recurrence: string[]): string {
   return `<p class="conflict-warning">${ICON_ALERT}<span>The first date is a ${escapeHtml(weekday)}, which isn't one of the repeat days. Google Calendar will still add it.</span></p>`;
 }
 
+// The clickable time line on a review tile — or a prompt to add one when
+// the parse found no date. Shared by the full render and syncTimeSummary.
+function timeSummaryInner(c: EventCandidate): string {
+  const body = hasTimes(c)
+    ? `<span class="candidate-time-date">${escapeHtml(formatHumanDate(c.start))}</span>
+        <span class="candidate-time-range">${escapeHtml(formatHumanTimeRange(c.start, c.end))}</span>`
+    : `<span class="candidate-time-date">Add date and time</span>`;
+  return `${body}<span class="edit-cue">${ICON_EDIT}</span>`;
+}
+
+function timeSummaryLabel(c: EventCandidate): string {
+  return hasTimes(c)
+    ? `Date and time: ${formatHumanDate(c.start)}, ${formatHumanTimeRange(c.start, c.end)}. Edit`
+    : "Date and time missing. Add date and time";
+}
+
 function renderEditableFields(
   action: Extract<EventAction, { type: "create" | "update" }>,
   i: number,
@@ -1606,8 +1673,10 @@ function renderEditableFields(
   const o = action.type === "update" ? action.original : undefined;
   const allDay = isDateOnly(c.start);
   const titleChanged = Boolean(o && o.title !== c.title);
+  const timed = hasTimes(c);
+  const titleMissing = !c.title.trim();
   const timeChanged = Boolean(
-    o && (parseEventDate(o.start).getTime() !== parseEventDate(c.start).getTime() || parseEventDate(o.end).getTime() !== parseEventDate(c.end).getTime()),
+    timed && o && (parseEventDate(o.start).getTime() !== parseEventDate(c.start).getTime() || parseEventDate(o.end).getTime() !== parseEventDate(c.end).getTime()),
   );
   // An update's candidate leaves location out when it isn't changing (the
   // PATCH then leaves Google's value alone), so show the current one
@@ -1616,7 +1685,7 @@ function renderEditableFields(
   const locationChanged = Boolean(o && c.location !== undefined && (o.location ?? "") !== c.location);
   const recurrenceNote =
     action.type === "create" && c.recurrence?.length
-      ? `<p class="meta-note">${ICON_REPEAT}<span>${escapeHtml(formatRecurrence(c.recurrence))}</span></p>${recurrenceStartWarning(c.start, c.recurrence)}`
+      ? `<p class="meta-note">${ICON_REPEAT}<span>${escapeHtml(formatRecurrence(c.recurrence))}</span></p>${timed ? recurrenceStartWarning(c.start, c.recurrence) : ""}`
       : "";
   // Everything displays in the browser's local time; only worth saying so
   // when the event itself was pinned to a different zone.
@@ -1636,13 +1705,11 @@ function renderEditableFields(
     : `<label class="time-field"><span>Starts</span><input type="datetime-local" class="cand-start" data-index="${i}" value="${toDatetimeLocalValue(c.start)}" ${lockAttr} /></label>
         <label class="time-field"><span>Ends</span><input type="datetime-local" class="cand-end" data-index="${i}" value="${toDatetimeLocalValue(c.end)}" ${lockAttr} /></label>`;
   return `
-    <textarea class="cand-title${changed(titleChanged)}" data-index="${i}" rows="1" aria-label="Event title" spellcheck="false" ${lockAttr}>${escapeHtml(c.title)}</textarea>
+    <textarea class="cand-title${changed(titleChanged)}${titleMissing ? " missing" : ""}" data-index="${i}" rows="1" placeholder="Add a title" aria-label="Event title" ${titleMissing ? 'aria-invalid="true"' : ""} spellcheck="false" ${lockAttr}>${escapeHtml(c.title)}</textarea>
     ${titleChanged && o ? wasLine(`“${o.title}”`) : ""}
     <div class="candidate-time-edit${openTimeEditor === i ? " editing" : ""}" data-index="${i}">
-      <button type="button" class="candidate-time-summary${changed(timeChanged)}" data-index="${i}" aria-label="Date and time: ${escapeAttr(formatHumanDate(c.start))}, ${escapeAttr(formatHumanTimeRange(c.start, c.end))}. Edit" ${lockAttr}>
-        <span class="candidate-time-date">${escapeHtml(formatHumanDate(c.start))}</span>
-        <span class="candidate-time-range">${escapeHtml(formatHumanTimeRange(c.start, c.end))}</span>
-        <span class="edit-cue">${ICON_EDIT}</span>
+      <button type="button" class="candidate-time-summary${changed(timeChanged)}${timed ? "" : " missing"}" data-index="${i}" aria-label="${escapeAttr(timeSummaryLabel(c))}" ${lockAttr}>
+        ${timeSummaryInner(c)}
       </button>
       <div class="candidate-times">
         ${timeInputs}
@@ -1711,6 +1778,9 @@ function reviewCopy(confirming: ConfirmingState, calendarLabel: string | undefin
   const kind = reviewKind(remaining.length ? remaining : confirming.actions);
   const pending = remaining.filter((a) => a.selected || confirming.actions.length === 1);
   const n = pending.length;
+  // A parse can leave a title or time blank when the source never said;
+  // nothing is written until every selected row is filled in.
+  const incomplete = pending.some((a) => !isActionComplete(a.action));
   const anySaved = savedCount > 0;
   const many = confirming.actions.length > 1;
   const noun = kind === "mixed" ? "change" : "event";
@@ -1752,7 +1822,7 @@ function reviewCopy(confirming: ConfirmingState, calendarLabel: string | undefin
   const allSelected = remaining.every((a) => a.selected);
   const showSelectToggle = many && !anySaved && remaining.length > 1;
 
-  return { heading, sub, confirmLabel, busyLabel, dismissLabel, summary, n, danger: kind === "delete", allSelected, showSelectToggle };
+  return { heading, sub, confirmLabel, busyLabel, dismissLabel, summary, n, incomplete, danger: kind === "delete", allSelected, showSelectToggle };
 }
 
 function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined, calendarLabel: string | undefined): string {
@@ -1773,10 +1843,11 @@ function renderConfirming(confirming: ConfirmingState, busy: boolean | undefined
     <p class="review-sub">${copy.sub}</p>
     <ul class="candidates" aria-labelledby="review-heading">${rows}</ul>
     ${confirming.error ? `<p class="notice error review-error">${ICON_ALERT}<span>${escapeHtml(confirming.error)}</span></p>` : ""}
+    <p id="confirm-missing" class="confirm-missing" ${copy.incomplete ? "" : "hidden"}>${ICON_ALERT}<span>Fill in the details marked in red — a title and a date — to continue.</span></p>
     <div class="confirm-footer">
       <button id="confirm-dismiss" class="btn-secondary" ${busy ? "disabled" : ""}>${copy.dismissLabel}</button>
       <span id="selection-summary" class="selection-summary" aria-live="polite">${copy.summary}</span>
-      <button id="confirm" class="primary${copy.danger ? " danger" : ""}" ${busy || copy.n === 0 ? "disabled" : ""} aria-keyshortcuts="Control+Enter Meta+Enter">
+      <button id="confirm" class="primary${copy.danger ? " danger" : ""}" ${busy || copy.n === 0 || copy.incomplete ? "disabled" : ""} aria-describedby="confirm-missing" aria-keyshortcuts="Control+Enter Meta+Enter">
         ${busy ? `${SPINNER}<span>${copy.busyLabel}</span>` : escapeHtml(copy.confirmLabel)}
       </button>
     </div>
@@ -1802,7 +1873,7 @@ function renderSaidLine(submittedText: string | undefined): string {
 
 // "2 events tomorrow" / "3 events on Saturday" / "4 events" — the one
 // line that tells you what the list below is before you read it.
-function answerLead(events: CalendarEvent[]): string {
+function eventCountLead(events: CalendarEvent[]): string {
   const headings = new Set(events.map((e) => formatGroupHeading(e.start)));
   const count = plural(events.length, "event");
   if (headings.size !== 1) return count;
@@ -1814,10 +1885,10 @@ const BULLET = /^\s*[-•*]\s+/;
 
 // Spoken form of an answer: the lead plus each event, or the text with its
 // "- " bullet markers stripped so they aren't read out as "dash".
-function describeAnswer(text: string, events: CalendarEvent[] | undefined): string {
+function describeAnswer(text: string, events: CalendarEvent[] | undefined, lead?: string): string {
   if (events?.length) {
     const items = events.map((e) => `${e.title}, ${formatEventTime(e.start, e.end)}`).join(". ");
-    return `${answerLead(events)}. ${items}.`;
+    return `${lead ? `${lead} ` : ""}${eventCountLead(events)}. ${items}.`;
   }
   return text
     .split("\n")
@@ -1847,9 +1918,16 @@ function renderAnswerText(text: string): string {
   return blocks.join("");
 }
 
-function renderAnswer(text: string, events: CalendarEvent[] | undefined, submittedText: string | undefined): string {
+// With tiles, `text` isn't shown, so a yes/no lead ("No.") goes in front of
+// the count line; without them, `text` already starts with it.
+function renderAnswer(
+  text: string,
+  events: CalendarEvent[] | undefined,
+  submittedText: string | undefined,
+  lead: string | undefined,
+): string {
   const body = events?.length
-    ? `<p class="answer-lead">${escapeHtml(answerLead(events))}</p>${renderEventTiles(events)}`
+    ? `<p class="answer-lead">${lead ? `${escapeHtml(lead)} ` : ""}${escapeHtml(eventCountLead(events))}</p>${renderEventTiles(events)}`
     : renderAnswerText(text);
   return `
     ${renderSaidLine(submittedText)}
@@ -1975,8 +2053,10 @@ function syncReviewControls(): void {
   const confirmBtn = document.getElementById("confirm") as HTMLButtonElement | null;
   if (confirmBtn && !state.busy) {
     confirmBtn.textContent = copy.confirmLabel;
-    confirmBtn.disabled = copy.n === 0;
+    confirmBtn.disabled = copy.n === 0 || copy.incomplete;
   }
+  const missing = document.getElementById("confirm-missing");
+  if (missing) missing.hidden = !copy.incomplete;
   const summary = document.getElementById("selection-summary");
   if (summary) summary.textContent = copy.summary;
   const toggle = document.getElementById("select-toggle");
@@ -1991,18 +2071,15 @@ function syncReviewControls(): void {
 // Re-draws one row's time summary after its datetime inputs change.
 function syncTimeSummary(i: number, action: EventAction): void {
   if (action.type === "delete") return;
-  const tile = document.querySelector(`.candidate-time-edit[data-index="${i}"]`);
-  if (!tile) return;
-  const { start, end } = action.candidate;
-  const date = tile.querySelector(".candidate-time-date");
-  const range = tile.querySelector(".candidate-time-range");
-  if (date) date.textContent = formatHumanDate(start);
-  if (range) range.textContent = formatHumanTimeRange(start, end);
-  tile
-    .querySelector(".candidate-time-summary")
-    ?.setAttribute("aria-label", `Date and time: ${formatHumanDate(start)}, ${formatHumanTimeRange(start, end)}. Edit`);
+  const summary = document.querySelector(`.candidate-time-edit[data-index="${i}"] .candidate-time-summary`);
+  if (summary) {
+    summary.innerHTML = timeSummaryInner(action.candidate);
+    summary.setAttribute("aria-label", timeSummaryLabel(action.candidate));
+    summary.classList.toggle("missing", !hasTimes(action.candidate));
+  }
   const slot = document.querySelector(`.conflict-slot[data-index="${i}"]`);
   if (slot) slot.innerHTML = "";
+  syncReviewControls();
 }
 
 const ACCEPTED_FILE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
@@ -2254,6 +2331,10 @@ function attachHandlers() {
           ...item,
           action: withCandidatePatch(item.action, { title: el.value }),
         }));
+        const missing = !el.value.trim();
+        el.classList.toggle("missing", missing);
+        el.toggleAttribute("aria-invalid", missing);
+        syncReviewControls();
       });
       // A title is one line; Enter finishes editing it instead of adding a
       // line break Google Calendar would just flatten anyway.
@@ -2272,9 +2353,9 @@ function attachHandlers() {
         }));
       });
     });
-    // Moving the start keeps the event's length, the way Google Calendar
-    // does — otherwise pushing a 3pm meeting to 5pm leaves it ending at
-    // 4pm, before it starts. All-day rows move in whole days.
+    // Timed rows follow endForNewStart (the end stays put unless the start
+    // passes it, then keeps the length); all-day rows move in whole days,
+    // keeping their span.
     document.querySelectorAll<HTMLInputElement>(".cand-start").forEach((el) => {
       el.addEventListener("change", () => {
         if (!el.value) return;
@@ -2287,10 +2368,12 @@ function attachHandlers() {
             const days = Math.round((parseEventDate(end).getTime() - parseEventDate(start).getTime()) / 86400000);
             return { ...item, action: withCandidatePatch(item.action, { start: el.value, end: addDays(el.value, Math.max(days, 1)) }), conflicts: undefined };
           }
-          const duration = parseEventDate(end).getTime() - parseEventDate(start).getTime();
           const newStart = fromDatetimeLocalValue(el.value);
-          const newEnd = new Date(new Date(newStart).getTime() + Math.max(duration, 0)).toISOString();
-          return { ...item, action: withCandidatePatch(item.action, { start: newStart, end: newEnd }), conflicts: undefined };
+          return {
+            ...item,
+            action: withCandidatePatch(item.action, { start: newStart, end: endForNewStart(item.action.candidate, newStart) }),
+            conflicts: undefined,
+          };
         });
         if (!actions) return;
         const action = actions[i].action;
@@ -2333,7 +2416,8 @@ function attachHandlers() {
         const item = s?.confirming?.actions[i];
         if (!s?.confirming || !item || item.action.type === "delete") return;
         const { start } = item.action.candidate;
-        const day = toDateValue(parseEventDate(start));
+        // A row with no date yet starts from today.
+        const day = toDateValue(Number.isNaN(Date.parse(start)) ? new Date() : parseEventDate(start));
         let patch: { start: string; end: string };
         if (el.checked) {
           patch = { start: day, end: addDays(day, 1) };

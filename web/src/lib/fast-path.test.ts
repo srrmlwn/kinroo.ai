@@ -18,6 +18,13 @@ describe("looksLikeQuery", () => {
     "am I free tomorrow?",
     "is there anything Tuesday?",
     "any plans this weekend?",
+    "What plans do i have this weekend",
+    "anything on this weekend?",
+    "show me my weekend",
+    "when is my dentist appointment",
+    "which days am I busy next week",
+    "can I fit in a run tomorrow",
+    "dinner with sam friday?",
   ])("treats %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(true);
   });
@@ -26,6 +33,10 @@ describe("looksLikeQuery", () => {
     "doctor's appointment at 9am tomorrow",
     "schedule dentist next tuesday at 2pm",
     "team practice at 4pm on Saturday",
+    "Do laundry Saturday at 10am",
+    "When: Sunday, September 27, 3:00PM",
+    "What: Maya's 3rd birthday party Sunday at 3pm",
+    "Whole Foods run tomorrow at 5pm",
   ])("does not treat %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(false);
   });
@@ -138,6 +149,42 @@ describe("fastPathExtractCreate", () => {
     expect(result?.location).toBe("Cafe Luna");
   });
 
+  it("returns null for text copied off an event page (headings, buttons, address)", () => {
+    expect(
+      fastPathExtractCreate(
+        "Event details   Sunday, September 27, 2026 3:00PM - 4:30PM  Add to calendar Tumbles Ballard 5680 24th Ave NW Seattle, WA 98107  View Map",
+        REF,
+        TZ,
+        30,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when the leftover title contains a street address", () => {
+    expect(fastPathExtractCreate("party Saturday 3pm 5680 24th Ave NW", REF, TZ, 30)).toBeNull();
+  });
+
+  it("returns null when the leftover title contains a state and ZIP", () => {
+    expect(fastPathExtractCreate("party Saturday 3pm Seattle, WA 98107", REF, TZ, 30)).toBeNull();
+  });
+
+  it("returns null when the leftover title is too long to be a typed title", () => {
+    expect(
+      fastPathExtractCreate(
+        "tomorrow at 9am please remember to bring the signed permission slip and snacks for everyone",
+        REF,
+        TZ,
+        30,
+      ),
+    ).toBeNull();
+  });
+
+  it("still handles a short typed phrase with an 'at <place>' location", () => {
+    const result = fastPathExtractCreate("lunch tomorrow at noon at 5680 24th Ave NW", REF, TZ, 30);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("lunch");
+  });
+
   it("leaves location undefined when there's no trailing 'at <place>'", () => {
     const result = fastPathExtractCreate("doctor's appointment at 9am tomorrow", REF, TZ, 30);
     expect(result).not.toBeNull();
@@ -162,6 +209,34 @@ describe("fastPathQueryRange", () => {
     expect(range).not.toBeNull();
     const spanMinutes = (range!.end.getTime() - range!.start.getTime()) / 60_000;
     expect(spanMinutes).toBeLessThan(120);
+  });
+
+  it("covers both Saturday and Sunday for 'this weekend'", () => {
+    const range = fastPathQueryRange("What plans do i have this weekend", REF, TZ);
+    expect(range).not.toBeNull();
+    // Sat 2026-09-19 00:00 through Sun 2026-09-20 23:59:59.999 Pacific.
+    expect(range?.start.toISOString()).toBe("2026-09-19T07:00:00.000Z");
+    expect(range?.end.toISOString()).toBe("2026-09-21T06:59:59.999Z");
+  });
+
+  it.each([
+    "what's on Sunday",
+    "What plans do i have this weekend",
+    "do I have anything tomorrow?",
+    "show me my schedule for Saturday",
+    "anything on Tuesday",
+  ])("answers the plain listing question %j without Claude", (text) => {
+    expect(fastPathQueryRange(text, REF, TZ)).not.toBeNull();
+  });
+
+  it.each([
+    "am I free Sunday morning?",
+    "does Sasha have anything Monday",
+    "what's my first thing Sunday",
+    "anything after 6pm this week",
+    "when is Sahana's gymnastics on Friday",
+  ])("defers %j to Claude, since it asks for part of the range", (text) => {
+    expect(fastPathQueryRange(text, REF, TZ)).toBeNull();
   });
 
   it("returns null when there's nothing to anchor a range on", () => {

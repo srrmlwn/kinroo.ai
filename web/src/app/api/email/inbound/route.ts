@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { emailIdentities, pendingEmailActions } from "@/lib/db/schema";
 import { parseInput } from "@/lib/parse";
 import { getUserSettings } from "@/lib/user-settings";
-import { applyEventAction, type EventAction } from "@/lib/google-calendar";
+import { applyEventAction, isCandidateComplete, type EventAction } from "@/lib/google-calendar";
 import { sendEmail, confirmReplyAddress } from "@/lib/email";
 import {
   parseSenderAddress,
@@ -121,6 +121,16 @@ async function handleNewSubmission(
       subject: `Re: ${subject || "your email"}`,
       text: "Couldn't find an event in that email — try rephrasing and resend.",
     }).catch((err) => console.error("[email/inbound] failed to send not-found reply", err));
+    return;
+  }
+  // Email can only confirm with a YES/NO, so there's no way to fill in a
+  // missing date or title the way the extension's confirm screen does.
+  if (action.type !== "delete" && !isCandidateComplete(action.candidate)) {
+    await sendEmail({
+      to: senderAddress,
+      subject: `Re: ${subject || "your email"}`,
+      text: "Couldn't find both an event name and a date/time in that email — add whichever is missing and resend.",
+    }).catch((err) => console.error("[email/inbound] failed to send incomplete-event reply", err));
     return;
   }
   if (rest.length > 0) {
