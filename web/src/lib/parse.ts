@@ -8,7 +8,7 @@ import {
 } from "./fast-path";
 import { extractWithClaude, type ClaudeInput } from "./claude";
 import { listEvents, type EventCandidate, type EventAction, type CalendarEvent } from "./google-calendar";
-import { findMatchingEvents } from "./match-events";
+import { findMatchingEvents, findBestMatchingEvents } from "./match-events";
 import { formatQueryAnswer } from "./format-answer";
 import { logLlmCall } from "./llm-log";
 
@@ -39,6 +39,26 @@ async function answerQuery(
   const start = typeof range.start === "string" ? range.start : range.start.toISOString();
   const end = typeof range.end === "string" ? range.end : range.end.toISOString();
   const events = await listEvents(userId, calendarId, start, end);
+  return { answer: formatQueryAnswer(events, timezone), events };
+}
+
+// "When is Sahana's hippity hop": search upcoming events by title and
+// answer with just the best matches, rather than listing every event in
+// whatever range Claude guessed for a question that named no dates.
+async function answerEventLookup(
+  userId: string,
+  calendarId: string,
+  timezone: string,
+  searchQuery: string,
+  range: { start: string; end: string } | undefined,
+  referenceDate: Date,
+): Promise<{ answer: string; events: CalendarEvent[] }> {
+  const start = range?.start ?? referenceDate.toISOString();
+  const end = range?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
+  const events = findBestMatchingEvents(await listEvents(userId, calendarId, start, end), searchQuery);
+  if (events.length === 0) {
+    return { answer: `Couldn't find "${searchQuery}" on your calendar${range ? " then" : " in the next 60 days"}.`, events };
+  }
   return { answer: formatQueryAnswer(events, timezone), events };
 }
 
@@ -218,7 +238,16 @@ export async function parseInput(
   let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
 
   const validQueryRange = validRangeOrUndefined(result.queryRange);
-  if (result.intent === "query" && validQueryRange) {
+  if (result.intent === "query" && result.searchQuery) {
+    ({ answer, events: queryEvents } = await answerEventLookup(
+      userId,
+      userSettings.defaultCalendarId,
+      userSettings.timezone,
+      result.searchQuery,
+      validQueryRange,
+      referenceDate,
+    ));
+  } else if (result.intent === "query" && validQueryRange) {
     ({ answer, events: queryEvents } = await answerQuery(
       userId,
       userSettings.defaultCalendarId,

@@ -67,7 +67,8 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       },
       query_start: {
         type: "string",
-        description: "ISO 8601 datetime — only when intent is 'query'",
+        description:
+          "ISO 8601 datetime — only when intent is 'query' and the question names a time period ('this weekend', 'on Saturday'). Omit for a question about a specific event with no date in it.",
       },
       query_end: {
         type: "string",
@@ -76,7 +77,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       search_query: {
         type: "string",
         description:
-          "Only when intent is 'update' or 'delete': a short phrase describing the existing event to find (e.g. 'dentist appointment', 'team sync'), used to search the calendar for it. Omit otherwise.",
+          "When intent is 'update' or 'delete', or a 'query' that asks about one specific event rather than a time period (e.g. 'when is Sahana's hippity hop'): a short phrase describing the existing event to find (e.g. 'dentist appointment', 'Sahana hippity hop'), used to search the calendar by title. Keep any person's name in it — it's often what tells two similar events apart. Omit otherwise.",
       },
       search_start: {
         type: "string",
@@ -159,7 +160,7 @@ export async function extractWithClaude(
     opts.forceCreateIntent
       ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
       : [
-          `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon") rather than a request to add something — in that case leave candidates empty and set query_start/query_end to the date range the question refers to.`,
+          `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon", "when is my dentist appointment") rather than a request to add something — in that case leave candidates empty. If it asks about a time period, set query_start/query_end to that range. If it asks about a specific event ("when is Sahana's hippity hop", "where is the team offsite"), set search_query to describe it, and set query_start/query_end only if the question also gives a date hint.`,
           `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, and put only the fields that should change in changes. Only set search_start/search_end if the text itself gives a date/time hint for the event you're searching for ("tomorrow's dentist", "my Friday meeting") — if it gives none ("cancel my dentist appointment"), omit both rather than guessing a narrow range; the backend searches broadly by default when they're absent.`,
           `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
