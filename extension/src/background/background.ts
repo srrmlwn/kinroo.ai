@@ -28,10 +28,25 @@ chrome.runtime.onInstalled.addListener(() => {
     .catch((err) => console.error("[kinroo] failed to set side panel behavior", err));
 });
 
+// chrome.identity.launchWebAuthFlow allows only one flow at a time — if the
+// panel is reopened (or a second panel instance sends the message) while a
+// prior consent window is still open, a second call rejects with "Only one
+// web auth flow is allowed at a time" instead of the user just seeing the
+// window they already opened. Sharing this in-flight promise across
+// messages means a second "connect-google" while one is pending just waits
+// on the same flow rather than starting another.
+let pendingConnect: ReturnType<typeof connectGoogle> | null = null;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "connect-google") return undefined;
 
-  connectGoogle()
+  if (!pendingConnect) {
+    pendingConnect = connectGoogle().finally(() => {
+      pendingConnect = null;
+    });
+  }
+
+  pendingConnect
     .then((result) => sendResponse({ ok: true, email: result.email, pictureUrl: result.pictureUrl }))
     .catch((err) =>
       sendResponse({ ok: false, error: err instanceof Error ? err.message : "Sign-in failed" }),
