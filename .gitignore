@@ -29,3 +29,6 @@ npm-debug.log*
 # .impeccable/config.json (shared detector ignores) and critique/ are tracked.
 .impeccable/config.local.json
 .impeccable/hook.cache.json
+
+
+.github/hooks/
