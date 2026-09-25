@@ -59,5 +59,5 @@ Tracks implementation against `SPEC.md`. All code-side tasks are done, including
 - [x] Point `kinroo.ai` at Vercel (apex + `www`, both verified) — DNS is on Namecheap
 - [x] GitHub Actions CI (typecheck/build/test) on every PR and push to `main`, `enable_pr_auto_merge` used going forward
 - [x] Add production env vars in the Vercel dashboard (`DATABASE_URL` on a separate prod Neon branch, `GOOGLE_CLIENT_ID`/`SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`) — `SENDGRID_API_KEY`/`EMAIL_INGEST_*` still pending, only needed for email ingest
-- [ ] Branch protection on `main` requiring the CI `build` check (so auto-merge actually gates on green CI instead of merging immediately)
+- [x] Branch protection on `main` requiring the CI `build` check (so auto-merge actually gates on green CI instead of merging immediately)
 - [ ] Verify email ingest end-to-end once there's a public HTTPS URL for the SendGrid webhook
