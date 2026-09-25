@@ -24,3 +24,11 @@ extension/config.json
 .vercel
 npm-debug.log*
 .neon
+
+# Impeccable design tooling: per-machine hook consent and session cache.
+# .impeccable/config.json (shared detector ignores) and critique/ are tracked.
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+
+
+.github/hooks/
