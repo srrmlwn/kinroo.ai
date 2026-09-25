@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "extension/src/panel/panel.ts"
+        ],
+        "createdAt": "2026-09-25T05:17:53.336Z",
+        "reason": "Assessment B verified: #file-thumb src is assigned from URL.createObjectURL immediately after render in attachHandlers"
+      }
+    ]
+  }
+}
