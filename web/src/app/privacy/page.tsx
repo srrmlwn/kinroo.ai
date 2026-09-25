@@ -19,7 +19,7 @@ export default function PrivacyPolicy() {
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Privacy Policy</h1>
-        <p className="text-sm text-gray-500">Last updated September 23, 2026</p>
+        <p className="text-sm text-gray-500">Last updated September 25, 2026</p>
       </div>
 
       <p className="text-sm leading-relaxed text-gray-600">
@@ -35,9 +35,10 @@ export default function PrivacyPolicy() {
         </p>
         <ul className="list-disc pl-5">
           <li>
-            <code className="text-xs">calendar.events</code> — create, edit, and delete events on
-            your calendar. Every write is shown to you for confirmation before it happens; kinroo
-            never creates or changes an event silently.
+            <code className="text-xs">calendar.events</code> — see, create, edit, and delete events
+            on your calendar. kinroo reads events to answer your questions and to warn you about
+            conflicts. Every write is shown to you for confirmation before it happens; kinroo never
+            creates or changes an event silently.
           </li>
           <li>
             <code className="text-xs">calendar.calendarlist.readonly</code> — list the names of
@@ -90,6 +91,18 @@ export default function PrivacyPolicy() {
           API terms.
         </p>
         <p>
+          When you ask a question about your schedule, kinroo reads the relevant events from your
+          Google Calendar. A simple question like &ldquo;what&rsquo;s on Sunday&rdquo; is answered
+          directly from those events, without Claude. For other questions, such as &ldquo;when is
+          my dentist appointment&rdquo; or &ldquo;am I free Saturday afternoon&rdquo;, kinroo
+          sends your question to the Claude API along with the title, time, and location of each
+          event in the period it covers. That period is the dates you asked about, or the next 60
+          days if you didn&rsquo;t name any. Claude only picks which of those events answer the
+          question. The answer you see is built from your actual calendar events, not written by
+          the AI. The same Anthropic API terms apply to this content, and kinroo doesn&rsquo;t
+          store it.
+        </p>
+        <p>
           Nothing is written to your calendar until you review and confirm it in the extension.
         </p>
       </Section>
@@ -102,7 +115,8 @@ export default function PrivacyPolicy() {
           </li>
           <li>
             <strong>Anthropic (Claude API)</strong> — parses text/image input into structured event
-            data when our fast-path parser can&rsquo;t confidently handle it.
+            data when our fast-path parser can&rsquo;t confidently handle it, and picks which of
+            your calendar events answer a question, as described above.
           </li>
           <li>
             <strong>Neon</strong> — hosts our Postgres database (the account and settings data
