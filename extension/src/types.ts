@@ -1,7 +1,9 @@
+// title/start/end are "" when the source never stated them — the confirm
+// screen makes the user fill them in before the event can be saved.
 export interface EventCandidate {
   title: string;
-  start: string; // ISO 8601
-  end: string; // ISO 8601
+  start: string; // ISO 8601, or "" if unknown
+  end: string; // ISO 8601, or "" if unknown
   timezone?: string;
   location?: string;
   recurrence?: string[]; // iCalendar lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE:20261126T180000Z"]

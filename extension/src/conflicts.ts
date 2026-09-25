@@ -10,9 +10,13 @@ import type { EditableAction } from "./types";
 // (offline, expired session) must never block confirming — the write path
 // doesn't depend on it.
 export async function annotateConflicts(items: EditableAction[]): Promise<EditableAction[]> {
+  // A create with no date yet (the user still has to fill it in) has
+  // nothing to overlap with, and would make the fetched range NaN.
   const creates = items.filter(
     (item): item is EditableAction & { action: Extract<EditableAction["action"], { type: "create" }> } =>
-      item.action.type === "create",
+      item.action.type === "create" &&
+      !Number.isNaN(Date.parse(item.action.candidate.start)) &&
+      !Number.isNaN(Date.parse(item.action.candidate.end)),
   );
   if (creates.length === 0) return items;
 

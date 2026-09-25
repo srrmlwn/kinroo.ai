@@ -659,3 +659,20 @@ textarea:focus {
   display: inline-block;
   margin-top: 8px;
 }
+
+/* A field the parse couldn't fill in (no event name, no date in the
+   source) — flagged in the danger color until the user supplies it. */
+.candidate-title-input.missing::placeholder,
+.candidate-time-summary.missing .candidate-time-date {
+  color: var(--danger);
+}
+
+.candidate-title-input.missing:not(:focus) {
+  border-bottom-color: var(--danger);
+}
+
+.confirm-missing {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
