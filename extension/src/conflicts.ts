@@ -1,4 +1,5 @@
 import { getEvents } from "./api";
+import { parseEventDate } from "./dates";
 import type { EditableAction } from "./types";
 
 // Best-effort: fetches everything already on the calendar across the span
@@ -20,8 +21,8 @@ export async function annotateConflicts(items: EditableAction[]): Promise<Editab
   );
   if (creates.length === 0) return items;
 
-  const starts = creates.map((item) => new Date(item.action.candidate.start).getTime());
-  const ends = creates.map((item) => new Date(item.action.candidate.end).getTime());
+  const starts = creates.map((item) => parseEventDate(item.action.candidate.start).getTime());
+  const ends = creates.map((item) => parseEventDate(item.action.candidate.end).getTime());
   const rangeStart = new Date(Math.min(...starts)).toISOString();
   const rangeEnd = new Date(Math.max(...ends)).toISOString();
 
@@ -29,11 +30,11 @@ export async function annotateConflicts(items: EditableAction[]): Promise<Editab
     const { events } = await getEvents(rangeStart, rangeEnd);
     return items.map((item) => {
       if (item.action.type !== "create") return item;
-      const itemStart = new Date(item.action.candidate.start).getTime();
-      const itemEnd = new Date(item.action.candidate.end).getTime();
+      const itemStart = parseEventDate(item.action.candidate.start).getTime();
+      const itemEnd = parseEventDate(item.action.candidate.end).getTime();
       const conflicts = events.filter((event) => {
-        const eventStart = new Date(event.start).getTime();
-        const eventEnd = new Date(event.end).getTime();
+        const eventStart = parseEventDate(event.start).getTime();
+        const eventEnd = parseEventDate(event.end).getTime();
         return eventStart < itemEnd && eventEnd > itemStart;
       });
       return { ...item, conflicts: conflicts.length > 0 ? conflicts : undefined };

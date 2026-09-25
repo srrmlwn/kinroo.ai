@@ -35,9 +35,11 @@ export async function getMe(): Promise<{ email: string; name?: string; pictureUr
   return res.json();
 }
 
-export async function parseText(text: string): Promise<ParseResponse> {
+// `signal` lets the panel's "Cancel" on a slow parse abandon the request.
+export async function parseText(text: string, signal?: AbortSignal): Promise<ParseResponse> {
   const res = await apiFetch("/api/parse", {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
@@ -48,10 +50,10 @@ export async function parseText(text: string): Promise<ParseResponse> {
   return res.json();
 }
 
-export async function parseFile(file: File): Promise<ParseResponse> {
+export async function parseFile(file: File, signal?: AbortSignal): Promise<ParseResponse> {
   const form = new FormData();
   form.append("file", file);
-  const res = await apiFetch("/api/parse", { method: "POST", body: form });
+  const res = await apiFetch("/api/parse", { method: "POST", body: form, signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.error ?? "Could not parse that file", res.status);
