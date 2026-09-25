@@ -53,6 +53,7 @@ export async function POST(request: Request) {
       intent: result.intent,
       actions: result.actions,
       answer: result.answer,
+      answerLead: result.answerLead,
       queryEvents: result.queryEvents,
       usedLLM: result.usedLlm,
       inputType: result.inputType,

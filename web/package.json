@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:query": "vitest run --config vitest.eval.config.ts eval/query"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

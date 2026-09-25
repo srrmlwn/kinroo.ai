@@ -29,6 +29,7 @@ export interface ParseResponse {
   intent: "create" | "query" | "update" | "delete" | "unknown";
   actions: EventAction[];
   answer?: string;
+  answerLead?: string; // "Yes." / "No." for a yes/no question
   queryEvents?: CalendarEvent[];
   usedLLM: boolean;
   inputType: "text" | "image" | "pdf";
