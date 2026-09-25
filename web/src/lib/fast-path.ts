@@ -1,11 +1,16 @@
 import * as chrono from "chrono-node";
 import type { EventCandidate } from "./google-calendar";
 
+// A question word or phrase at the start, or a trailing "?". The negative
+// lookahead keeps pasted invite fields ("When: Sunday 3pm", "What: Maya's
+// party") from reading as questions, and "do"/"did"/"will" only count with
+// "I"/"we" after them so "Do laundry Saturday" is still a create.
 const QUESTION_PATTERN =
-  /^(do i|am i|what'?s|whats|when'?s|is there|are there|how many|any (plans|events)|what do i have)\b/i;
+  /^(?:(?:what|whats|what's|when|whens|when's|where|which|who|how)\b(?!\s*:)|(?:do|did|will|am|have|can) (?:i|we)\b|(?:is|are) (?:there|i|we)\b|any(?:thing)?\b|show me\b)/i;
 
 export function looksLikeQuery(text: string): boolean {
-  return QUESTION_PATTERN.test(text.trim());
+  const trimmed = text.trim();
+  return QUESTION_PATTERN.test(trimmed) || trimmed.endsWith("?");
 }
 
 const RECURRENCE_PATTERN =
@@ -163,5 +168,15 @@ export function fastPathQueryRange(
   }
 
   const { start: dayStart, end: dayEnd } = zonedDayBoundaries(start, timezone);
+  // chrono resolves "this weekend" / "next weekend" to just the Saturday —
+  // stretch it through Sunday so a weekend question sees both days.
+  if (/\bweekend\b/i.test(text) && weekdayIn(start, timezone) === "Sat") {
+    const { end: sundayEnd } = zonedDayBoundaries(new Date(dayEnd.getTime() + 1), timezone);
+    return { start: dayStart, end: sundayEnd };
+  }
   return { start: dayStart, end: dayEnd };
+}
+
+function weekdayIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(instant);
 }

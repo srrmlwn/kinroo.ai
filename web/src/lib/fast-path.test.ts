@@ -18,6 +18,13 @@ describe("looksLikeQuery", () => {
     "am I free tomorrow?",
     "is there anything Tuesday?",
     "any plans this weekend?",
+    "What plans do i have this weekend",
+    "anything on this weekend?",
+    "show me my weekend",
+    "when is my dentist appointment",
+    "which days am I busy next week",
+    "can I fit in a run tomorrow",
+    "dinner with sam friday?",
   ])("treats %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(true);
   });
@@ -26,6 +33,10 @@ describe("looksLikeQuery", () => {
     "doctor's appointment at 9am tomorrow",
     "schedule dentist next tuesday at 2pm",
     "team practice at 4pm on Saturday",
+    "Do laundry Saturday at 10am",
+    "When: Sunday, September 27, 3:00PM",
+    "What: Maya's 3rd birthday party Sunday at 3pm",
+    "Whole Foods run tomorrow at 5pm",
   ])("does not treat %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(false);
   });
@@ -198,6 +209,14 @@ describe("fastPathQueryRange", () => {
     expect(range).not.toBeNull();
     const spanMinutes = (range!.end.getTime() - range!.start.getTime()) / 60_000;
     expect(spanMinutes).toBeLessThan(120);
+  });
+
+  it("covers both Saturday and Sunday for 'this weekend'", () => {
+    const range = fastPathQueryRange("What plans do i have this weekend", REF, TZ);
+    expect(range).not.toBeNull();
+    // Sat 2026-09-19 00:00 through Sun 2026-09-20 23:59:59.999 Pacific.
+    expect(range?.start.toISOString()).toBe("2026-09-19T07:00:00.000Z");
+    expect(range?.end.toISOString()).toBe("2026-09-21T06:59:59.999Z");
   });
 
   it("returns null when there's nothing to anchor a range on", () => {
