@@ -15,10 +15,20 @@
       "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
-    }
+    },
+    "default_title": "Open kinroo.ai"
   },
   "side_panel": {
     "default_path": "panel.html"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Open the kinroo.ai panel"
+    }
   },
   "background": {
     "service_worker": "background.js"

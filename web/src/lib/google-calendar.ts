@@ -14,6 +14,15 @@ export interface EventCandidate {
   recurrence?: string[];
 }
 
+// All-day events come back from listEvents as a bare date ("2026-09-27"),
+// and the extension's Undo round-trips them straight back through
+// createEvent/updateEvent (re-creating a canceled event, restoring an
+// edited one) — sending a bare date as `dateTime` is rejected by Google, so
+// it has to go back out as `date`.
+function toEventTime(value: string, timeZone?: string): { date: string } | { dateTime: string; timeZone?: string } {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? { date: value } : { dateTime: value, timeZone };
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -127,8 +136,8 @@ export async function insertEvent(
       body: JSON.stringify({
         summary: candidate.title,
         location: candidate.location,
-        start: { dateTime: candidate.start, timeZone: candidate.timezone },
-        end: { dateTime: candidate.end, timeZone: candidate.timezone },
+        start: toEventTime(candidate.start, candidate.timezone),
+        end: toEventTime(candidate.end, candidate.timezone),
         recurrence: candidate.recurrence,
       }),
     },
@@ -157,8 +166,8 @@ export async function updateEvent(
       body: JSON.stringify({
         summary: candidate.title,
         location: candidate.location,
-        start: { dateTime: candidate.start, timeZone: candidate.timezone },
-        end: { dateTime: candidate.end, timeZone: candidate.timezone },
+        start: toEventTime(candidate.start, candidate.timezone),
+        end: toEventTime(candidate.end, candidate.timezone),
       }),
     },
   );

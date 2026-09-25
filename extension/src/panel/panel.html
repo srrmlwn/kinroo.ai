@@ -1,20 +1,29 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>kinroo.ai</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
     <main class="panel">
-      <div class="topbar">
+      <header class="topbar">
+        <!-- The wordmark is a logo lockup, not a content heading; the h1 is
+             for screen readers, so the visible type scale starts at the
+             section titles. -->
         <div class="brand">
           <img src="icons/icon32.png" class="brand-logo" alt="" />
-          <h1>kinroo.ai</h1>
+          <span class="brand-name" aria-hidden="true">kinroo.ai</span>
+          <h1 class="sr-only">kinroo.ai</h1>
         </div>
         <div id="header-actions" class="header-actions"></div>
-      </div>
+      </header>
       <div id="root"></div>
     </main>
+    <!-- Outside #root so re-renders never replace them; see announce() in panel.ts. -->
+    <div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
+    <div id="live-alert" class="sr-only" role="alert" aria-live="assertive"></div>
     <script src="panel.js"></script>
   </body>
 </html>

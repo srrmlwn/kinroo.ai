@@ -1,16 +1,38 @@
+/* Google-native on purpose: kinroo lives next to Google Calendar, so the
+   palette is Google's own (Material blue 700 / blue 200 dark), not a brand
+   of its own. Every text/background pair below clears WCAG AA — the dark
+   accent is light enough that buttons on it take dark text (--on-accent),
+   the way Google's own dark UI does. */
 :root {
+  color-scheme: light dark;
   --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #666666;
-  --muted-2: #555555;
-  --border: #cccccc;
-  --border-light: #eeeeee;
+  --fg: #1f1f1f;
+  --muted: #5f6368;
+  --muted-2: #3c4043;
+  --border: #dadce0;
+  --border-light: #e8eaed;
   --surface: #f1f3f4;
-  --accent: #2075fe;
-  --accent-disabled: #a6c8fe;
+  --accent: #1967d2;
+  --on-accent: #ffffff;
+  --accent-soft: #e8f0fe;
+  --draft-edge: #8ab4f8;
   --danger: #b3261e;
+  --on-danger: #ffffff;
   --danger-bg: #fce8e6;
-  --success: #1e8e3e;
+  --danger-edge: #ee675c;
+  --warning: #7a4a00;
+  --warning-bg: #fef7e0;
+  --success: #137333;
+  --success-bg: #e6f4ea;
+  --shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --font:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,12 +44,40 @@
     --border: #5f6368;
     --border-light: #3c4043;
     --surface: #303134;
-    --accent: #5b9dff;
-    --accent-disabled: #3c4043;
+    --accent: #8ab4f8;
+    --on-accent: #202124;
+    --accent-soft: #28354a;
+    --draft-edge: #5f7fb0;
     --danger: #f28b82;
+    --on-danger: #202124;
     --danger-bg: #3c2a2a;
+    --danger-edge: #a8574f;
+    --warning: #fdd663;
+    --warning-bg: #3b3524;
     --success: #81c995;
+    --success-bg: #263a2c;
+    --shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.5);
   }
+}
+
+/* ---- Browser surfaces ------------------------------------------------ */
+
+html {
+  accent-color: var(--accent);
+  caret-color: var(--accent);
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 body {
@@ -35,18 +85,51 @@ body {
   min-width: 300px;
   background: var(--bg);
   color: var(--fg);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
 }
+
+p,
+h2,
+ul {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* ---- Frame ----------------------------------------------------------- */
 
 .panel {
   box-sizing: border-box;
   max-width: 560px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px 16px 16px;
 }
 
 .topbar {
@@ -67,53 +150,51 @@ body {
   height: 20px;
 }
 
-h1 {
-  font-size: 16px;
-  margin: 0;
+/* Type scale: 12 metadata · 13 body · 15 event titles · 17 section and
+   review titles. Each step up is also a weight or colour change, so the
+   hierarchy reads even where sizes are close. */
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .lead {
   font-size: 13px;
   color: var(--muted-2);
-  margin: 0 0 12px;
 }
 
-/* Quieter than .lead — a reminder of what was typed, not the main message
-   of the screen. Truncates instead of wrapping so a long message can't
-   push the actual review content down. */
-.said-line {
-  font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
-  margin: 0 0 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* ---- Buttons --------------------------------------------------------- */
 
 button {
   font: inherit;
+  color: inherit;
   cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
 }
 
 .icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: none;
   color: var(--muted);
   text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -121,14 +202,103 @@ button {
   color: var(--fg);
 }
 
+.icon-btn:disabled {
+  opacity: 0.5;
+}
+
 .icon-btn svg,
 .send-btn svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
+
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+button.primary:hover:not(:disabled) {
+  box-shadow: var(--shadow);
+}
+
+button.primary.block {
+  width: 100%;
+  margin-top: 16px;
+}
+
+button.primary.danger {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
+button.primary:disabled {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.btn-secondary {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 18px;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.text-btn {
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Account menu ---------------------------------------------------- */
 
 .avatar-wrapper {
   position: relative;
+  margin-left: 4px;
 }
 
 .avatar-btn {
@@ -136,17 +306,21 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
   overflow: hidden;
+}
+
+.avatar-btn:focus-visible {
+  border-radius: 50%;
 }
 
 .avatar-img {
@@ -159,30 +333,32 @@ button {
 
 .avatar-menu {
   position: absolute;
-  top: 32px;
+  top: 36px;
   right: 0;
-  z-index: 1;
-  min-width: 180px;
+  z-index: 2;
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
   padding: 8px;
 }
 
 .avatar-menu-email {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  padding: 4px 6px;
+  padding: 4px 8px 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .avatar-menu-calendar {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
-  padding: 0 6px 6px;
+  padding: 2px 8px 8px;
   border-bottom: 1px solid var(--border-light);
   margin-bottom: 4px;
 }
@@ -191,54 +367,80 @@ button {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 6px;
+  padding: 8px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: none;
-  color: var(--danger);
-  font-size: 12px;
+  color: var(--fg);
+  font-size: 13px;
 }
 
 .avatar-menu-item:hover {
   background: var(--surface);
 }
 
-button.primary {
-  display: block;
-  width: 100%;
-  padding: 9px 12px;
-  margin-top: 8px;
-  background: var(--accent);
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
+/* ---- Welcome (signed out) -------------------------------------------- */
+
+.welcome {
+  padding: 8px 0 0;
+}
+
+.welcome-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  margin-bottom: 14px;
+}
+
+.welcome-points {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.welcome-points li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
   font-size: 13px;
+  color: var(--muted-2);
 }
 
-button.primary:disabled {
-  background: var(--accent-disabled);
-  cursor: default;
+.welcome-points svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--success);
 }
 
-button.link {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 12px;
-  padding: 0;
+.welcome .notice {
+  margin-top: 16px;
 }
+
+/* ---- Compose --------------------------------------------------------- */
 
 .compose {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 8px;
   background: var(--bg);
-  transition: background-color 0.1s ease, border-color 0.1s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* The textarea's own outline is off because the whole card is the field —
+   focus shows on the card instead, so it's never invisible. */
+.compose:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .compose.drag-active {
-  background: var(--surface);
+  background: var(--accent-soft);
   border-color: var(--accent);
+  border-style: dashed;
 }
 
 textarea {
@@ -248,6 +450,7 @@ textarea {
   padding: 4px;
   font: inherit;
   font-size: 13px;
+  line-height: 1.45;
   color: var(--fg);
   background: none;
   border: none;
@@ -255,8 +458,14 @@ textarea {
   overflow: hidden;
 }
 
-textarea:focus {
+#text-input:focus {
   outline: none;
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .compose-toolbar {
@@ -273,29 +482,67 @@ textarea:focus {
 }
 
 /* Comfortable tap targets for the utility tools that live in the compose
-   toolbar — bigger than the header's icon-btn, which is secondary and
-   space-constrained. */
+   toolbar. */
 .compose-toolbar-left .icon-btn {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
 }
 
 .send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 50%;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.send-btn:hover:not(:disabled) {
+  box-shadow: var(--shadow);
 }
 
 .send-btn:disabled {
-  background: var(--accent-disabled);
-  cursor: default;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* While a review or answer is up, compose steps back to one line so the
+   decision is the biggest thing on screen. */
+.compose.is-compact {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 22px;
+}
+
+.compose.is-compact .compose-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose.is-compact .compose-toolbar {
+  margin-top: 0;
+  gap: 2px;
+}
+
+.compose.is-compact .compose-toolbar-left .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.compose.is-compact .send-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.compose.is-compact .send-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .compose-input-wrap {
@@ -328,6 +575,10 @@ textarea:focus {
   transition: opacity 0.2s ease;
 }
 
+.compose-hint-example::before {
+  content: "Try: ";
+}
+
 .compose-hint-example.fade-out {
   opacity: 0;
 }
@@ -339,8 +590,8 @@ textarea:focus {
   margin: 4px 0;
   font-size: 12px;
   background: var(--surface);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: 8px;
+  padding: 6px 10px 6px 6px;
 }
 
 .file-thumb {
@@ -358,24 +609,53 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.notice-row {
+/* ---- Status: busy row and notices ------------------------------------ */
+
+.busy-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 10px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.busy-label {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  margin: 8px 0 0;
+}
+
+.busy-row .text-btn {
+  margin-left: auto;
+}
+
+.busy-row .spinner {
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+
+.busy-slow {
+  flex-basis: 100%;
+  padding-left: 20px;
+}
+
+.notice-row {
+  margin-top: 10px;
 }
 
 .notice {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
   color: var(--fg);
-  background: var(--surface);
-  border-radius: 6px;
-  padding: 6px 8px;
-  flex: 1;
+  background: var(--success-bg);
+  border-radius: 10px;
+  padding: 8px 6px 8px 10px;
 }
 
 .notice.error {
@@ -386,32 +666,110 @@ textarea:focus {
 .notice-icon {
   display: inline-flex;
   flex-shrink: 0;
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
   color: var(--success);
 }
 
-.notice-icon svg {
+.notice.error .notice-icon {
+  color: var(--danger);
+}
+
+.notice-icon svg,
+.notice > svg {
   width: 100%;
   height: 100%;
 }
+
+.notice > svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.notice-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-text {
+  padding-top: 1px;
+  text-wrap: pretty;
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 0 -6px;
+}
+
+.notice-action {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.notice-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.notice.error .notice-action {
+  color: var(--danger);
+}
+
+.notice-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: -2px 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+}
+
+.notice-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.notice-close:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+/* ---- The slot below compose ------------------------------------------ */
 
 /* Shared by everything that occupies the slot below compose — upcoming
    events, the inline confirm card, and the inline answer — only one of
    which shows at a time. */
 .below-compose {
-  margin-top: 14px;
-  padding-top: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-light);
 }
 
-.upcoming-heading {
-  font-size: 11px;
+.section-heading {
+  font-size: 17px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  margin: 0 0 6px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin-bottom: 10px;
 }
 
 .upcoming-group {
@@ -423,12 +781,10 @@ textarea:focus {
 }
 
 .upcoming-group-heading {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--muted);
-  margin: 0 0 4px;
+  margin-bottom: 2px;
 }
 
 /* A quiet list row rather than a card — no background, no border, no time
@@ -438,13 +794,16 @@ textarea:focus {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-size: 12px;
-  padding: 3px 0;
+  font-size: 13px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
 }
 
 .upcoming-row-time {
   flex-shrink: 0;
-  width: 58px;
+  width: 60px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -462,36 +821,167 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* The one authored moment: what you just confirmed lights up where you'd
+   look for it, then settles into the list. */
+.upcoming-row.is-new {
+  animation: arrive 3s var(--ease-out) both;
+}
+
+@keyframes arrive {
+  0%,
+  35% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 .upcoming-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.more-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.more-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Review (confirm) ------------------------------------------------ */
+
+/* Quieter than the heading — a reminder of what was typed, not the main
+   message of the screen. */
+.said-line {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
   font-size: 12px;
   color: var(--muted);
-  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.said-label {
+  font-weight: 600;
+}
+
+.said-line.is-expandable {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.said-line.is-expandable[aria-expanded="true"] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.review-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-title {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+}
+
+.review-title:focus {
+  outline: none;
+}
+
+.review-title:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.review-sub {
+  margin: 4px 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-sub strong {
+  font-weight: 600;
+  color: var(--muted-2);
 }
 
 .candidates {
-  max-height: 320px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-/* Heavier than the plain .upcoming-row list style — a pending change needs
-   to stand out as something awaiting a decision. Dashed border marks "not
-   on your calendar yet". */
+/* A draft card: the dashed outline is the "not on your calendar yet"
+   mark. It goes solid (with a check) once a row has actually saved. */
 .candidate-tile {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  margin-bottom: 6px;
-  border-left: 3px dashed var(--accent);
-  background: var(--surface);
-  border-radius: 0 6px 6px 0;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--draft-edge);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
-.candidate-checkbox {
+.candidate-tile.is-delete {
+  border-color: var(--danger-edge);
+  background: var(--danger-bg);
+}
+
+.candidate-tile.is-saved {
+  border-style: solid;
+  border-color: var(--border-light);
+  background: var(--surface);
+}
+
+.candidate-tile.is-excluded {
+  opacity: 0.55;
+}
+
+.candidate-tile.has-error {
+  border-style: solid;
+  border-color: var(--danger);
+}
+
+.cand-selected {
   flex-shrink: 0;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+}
+
+.saved-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
   margin-top: 3px;
+  color: var(--success);
+}
+
+.saved-mark svg {
+  width: 100%;
+  height: 100%;
 }
 
 .candidate-body {
@@ -499,47 +989,65 @@ textarea:focus {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-.candidate-title-input {
+/* Editable fields look like text until touched, but a dotted underline
+   appears on hover so it's discoverable that they can be changed. */
+.cand-title,
+.cand-location {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0 -4px;
+  padding: 2px 4px;
   font: inherit;
-  font-size: 13px;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+  transition: background-color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.cand-title {
+  font-size: 15px;
   font-weight: 600;
-  color: var(--fg);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid transparent;
-  padding: 2px 0;
-  width: 100%;
+  line-height: 1.3;
+  width: calc(100% + 4px);
 }
 
-.candidate-title-input:focus {
-  outline: none;
-  border-bottom-color: var(--accent);
-}
-
-/* Same quiet-until-touched treatment as .candidate-title-input, but smaller
-   and muted — location is a secondary detail, not present on most events. */
-.candidate-location-input {
-  font: inherit;
-  font-size: 11px;
+.cand-location {
+  font-size: 12px;
   color: var(--muted);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid transparent;
-  padding: 2px 0;
-  width: 100%;
+  width: calc(100% + 4px);
 }
 
-.candidate-location-input::placeholder {
-  color: var(--muted);
+.candidate-tile:not(.is-saved) .cand-title:hover,
+.candidate-tile:not(.is-saved) .cand-location:hover {
+  text-decoration-color: var(--muted);
 }
 
-.candidate-location-input:focus {
+.cand-title:focus,
+.cand-location:focus {
   outline: none;
+  background: var(--surface);
+  box-shadow: inset 0 -2px 0 var(--accent);
   color: var(--fg);
-  border-bottom-color: var(--accent);
+}
+
+.cand-title:disabled,
+.cand-location:disabled {
+  color: inherit;
+}
+
+.cand-location::placeholder {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cand-location:disabled:placeholder-shown {
+  display: none;
 }
 
 .candidate-time-edit {
@@ -547,18 +1055,26 @@ textarea:focus {
 }
 
 /* Looks like plain text until interacted with, matching the same "quiet
-   until you touch it" treatment as .candidate-title-input — a button only
-   because it needs to be clickable, not because it should look like one. */
+   until you touch it" treatment as the title — a button only because it
+   needs to be clickable, with a pencil that shows on hover/focus. */
 .candidate-time-summary {
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
-  padding: 2px 0;
+  column-gap: 8px;
+  margin: 0 0 0 -4px;
+  padding: 2px 22px 2px 4px;
   border: none;
+  border-radius: 4px;
   background: none;
-  font: inherit;
+  font-size: 13px;
   text-align: left;
-  color: var(--muted);
+  color: var(--fg);
+}
+
+.candidate-time-summary:hover:not(:disabled) {
+  background: var(--surface);
 }
 
 .candidate-time-date {
@@ -566,8 +1082,43 @@ textarea:focus {
 }
 
 .candidate-time-range {
-  font-size: 11px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.edit-cue {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
   color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.edit-cue svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Edit cues show on hover, and whenever keyboard focus is anywhere in
+   the row — not only on the one control under the pointer. */
+.candidate-time-summary:hover:not(:disabled) .edit-cue,
+.candidate-tile:focus-within .edit-cue {
+  opacity: 1;
+}
+
+.candidate-tile:not(.is-saved):focus-within .cand-title,
+.candidate-tile:not(.is-saved):focus-within .cand-location {
+  text-decoration-color: var(--muted);
+}
+
+.candidate-time-summary:disabled .edit-cue {
+  display: none;
 }
 
 .candidate-time-edit.editing .candidate-time-summary {
@@ -576,86 +1127,248 @@ textarea:focus {
 
 .candidate-times {
   display: none;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
 }
 
 .candidate-time-edit.editing .candidate-times {
   display: flex;
 }
 
-.candidate-times input {
+.time-field {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.time-field input {
   min-width: 0;
-  flex: 1 1 120px;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 4px;
+  border-radius: 6px;
+  padding: 4px 6px;
 }
 
-.conflict-warning {
-  font-size: 11px;
-  color: var(--danger);
-  margin: 4px 0 0;
+.time-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
-.recurrence-note {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 4px 0 0;
+.allday-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 52px;
+  font-size: 12px;
+  color: var(--muted-2);
+  cursor: pointer;
 }
 
-.action-original {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 0 0 4px;
-}
-
-.action-delete {
-  font-size: 13px;
-  color: var(--danger);
+.allday-toggle input {
+  width: 14px;
+  height: 14px;
   margin: 0;
 }
 
-.confirm-trust {
-  font-size: 11px;
-  color: var(--muted);
-  margin: -4px 0 10px;
+/* On an update, the new value of each changed field is tinted, so the
+   eye goes to what's different — the struck "was" line under it is the
+   before. */
+.cand-title.is-changed,
+.cand-location.is-changed,
+.candidate-time-summary.is-changed {
+  background: var(--accent-soft);
 }
 
-.confirm-actions {
+.was-line {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+  margin-bottom: 2px;
+}
+
+.meta-note {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.meta-note svg,
+.conflict-warning svg,
+.row-error svg,
+.review-error svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.conflict-warning {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: 8px;
+}
+
+.conflict-warning strong {
+  font-weight: 600;
+}
+
+.row-error {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.delete-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 75%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+
+.delete-when {
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.review-error {
   margin-top: 10px;
 }
 
-.confirm-actions .primary {
-  width: auto;
-  margin-top: 0;
-  padding: 8px 16px;
+/* Stays reachable under a long multi-event list — the decision never
+   scrolls away from the rows it applies to. */
+.confirm-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px -16px 0;
+  padding: 12px 16px;
+  background: var(--bg);
+  border-top: 1px solid transparent;
 }
 
-.confirm-destination {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 8px 0 0;
-  text-align: center;
+.confirm-footer #confirm {
+  margin-left: auto;
 }
+
+.selection-summary {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Answer ---------------------------------------------------------- */
 
 .answer {
   font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-line;
+  line-height: 1.55;
+  max-width: 65ch;
 }
 
-.answer-dismiss {
-  display: inline-block;
-  margin-top: 8px;
+.answer-lead {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.answer + .answer,
+.answer + .answer-list,
+.answer-list + .answer {
+  margin-top: 6px;
+}
+
+.answer-list {
+  list-style: disc;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.row-error strong {
+  font-weight: 600;
+}
+
+.answer-footer {
+  display: flex;
+  margin: 10px -12px 0;
+}
+
+/* ---- Replace-review prompt ------------------------------------------- */
+
+.replace-prompt {
+  margin-top: 10px;
+  padding: 10px 12px 6px;
+  border-radius: 12px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 13px;
+}
+
+.replace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px -12px 0;
+}
+
+.replace-actions .btn-secondary {
+  min-height: 32px;
+  padding: 6px 12px;
+  color: var(--fg);
+}
+
+.replace-actions .btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.replace-actions .btn-secondary.is-danger {
+  color: var(--danger);
+}
+
+/* ---- Motion preferences ---------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+
+  .upcoming-row.is-new {
+    animation: none;
+    background: var(--accent-soft);
+  }
 }

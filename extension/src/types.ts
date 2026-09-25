@@ -39,6 +39,11 @@ export interface EditableAction {
   action: EventAction;
   selected: boolean;
   conflicts?: CalendarEvent[];
+  // Set after a confirm where only some rows went through: `saved` rows are
+  // already on the calendar and must never be sent again (a retry of the
+  // whole list used to duplicate them); `saveError` is why a row didn't.
+  saved?: boolean;
+  saveError?: string;
 }
 
 export interface CreateEventsResponse {

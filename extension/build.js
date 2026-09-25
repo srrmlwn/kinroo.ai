@@ -5,6 +5,10 @@ const path = require("path");
 const watch = process.argv.includes("--watch");
 const outdir = path.join(__dirname, "dist");
 
+// Start from an empty dist/ so files from removed entry points (the old
+// action popup's popup.html/js/css) can't linger and get loaded by mistake.
+// Skipped in watch mode, where Chrome may have the unpacked extension open.
+if (!watch) fs.rmSync(outdir, { recursive: true, force: true });
 fs.mkdirSync(outdir, { recursive: true });
 fs.copyFileSync(
   path.join(__dirname, "manifest.json"),
