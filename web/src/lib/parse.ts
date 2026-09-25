@@ -6,7 +6,7 @@ import {
   fastPathExtractCreate,
   fastPathQueryRange,
 } from "./fast-path";
-import { extractWithClaude, type ClaudeInput } from "./claude";
+import { extractWithClaude, selectAnswerEvents, type ClaudeInput } from "./claude";
 import { listEvents, type EventCandidate, type EventAction, type CalendarEvent } from "./google-calendar";
 import { findMatchingEvents, findBestMatchingEvents } from "./match-events";
 import { formatQueryAnswer } from "./format-answer";
@@ -21,6 +21,10 @@ export interface ParseOutcome {
   intent: "create" | "query" | "update" | "delete" | "unknown";
   actions: EventAction[];
   answer?: string;
+  // "Yes." / "No." for a yes/no question — shown above the event tiles,
+  // since the extension renders tiles instead of `answer` when it has events.
+  // Already included at the start of `answer` for text-only channels.
+  answerLead?: string;
   // The same events `answer` is a text rendering of — lets callers that can
   // show real UI (the extension's event-tile list) skip the text and render
   // structured data instead. Channels that can only show text (email) keep
@@ -60,6 +64,67 @@ async function answerEventLookup(
     return { answer: `Couldn't find "${searchQuery}" on your calendar${range ? " then" : " in the next 60 days"}.`, events };
   }
   return { answer: formatQueryAnswer(events, timezone), events };
+}
+
+// How a question Claude classified as a query gets answered:
+// - "select" (default): fetch the events in the question's window and have
+//   Claude pick which ones answer it, by id. Handles synonyms, people,
+//   locations, times of day, yes/no, "what's next".
+// - "keyword": the earlier approach — title keyword matching for a named
+//   event, otherwise every event in the range. One Claude call instead of
+//   two. Kept as a fallback and so the query eval can compare the two.
+type QueryAnswerStrategy = "select" | "keyword";
+function queryAnswerStrategy(): QueryAnswerStrategy {
+  return process.env.QUERY_ANSWER_STRATEGY === "keyword" ? "keyword" : "select";
+}
+
+// Upper bound on events sent to Claude for selection — 60 days of a busy
+// family calendar is well under this; it only guards a runaway window.
+const MAX_EVENTS_FOR_SELECTION = 300;
+
+async function answerBySelection(
+  userId: string,
+  calendarId: string,
+  timezone: string,
+  question: string,
+  range: { start: string; end: string } | undefined,
+  referenceDate: Date,
+): Promise<{
+  answer: string;
+  answerLead?: string;
+  events: CalendarEvent[];
+  usage: { promptTokens: number; completionTokens: number; latencyMs: number };
+}> {
+  const start = range?.start ?? referenceDate.toISOString();
+  const end = range?.end ?? new Date(referenceDate.getTime() + DEFAULT_SEARCH_WINDOW_MS.after).toISOString();
+  const windowEvents = (await listEvents(userId, calendarId, start, end)).slice(0, MAX_EVENTS_FOR_SELECTION);
+
+  const selection = await selectAnswerEvents(question, windowEvents, { timezone, referenceDate });
+  const picked = new Set<number>();
+  for (const id of selection.eventIds) {
+    const index = Number(/^e(\d+)$/.exec(id.trim())?.[1]) - 1;
+    if (index >= 0 && index < windowEvents.length) picked.add(index);
+  }
+  // listEvents returns events in start order, so index order is time order.
+  const events = [...picked].sort((a, b) => a - b).map((i) => windowEvents[i]);
+
+  const answerLead = selection.yesNo === "yes" ? "Yes." : selection.yesNo === "no" ? "No." : undefined;
+  const body =
+    events.length > 0
+      ? formatQueryAnswer(events, timezone)
+      : answerLead
+        ? ""
+        : "Nothing on your calendar matches that.";
+  return {
+    answer: [answerLead, body].filter(Boolean).join("\n"),
+    answerLead,
+    events,
+    usage: {
+      promptTokens: selection.promptTokens,
+      completionTokens: selection.completionTokens,
+      latencyMs: selection.latencyMs,
+    },
+  };
 }
 
 // Default search window when Claude doesn't infer one (or the fast path
@@ -234,11 +299,30 @@ export async function parseInput(
   );
 
   let answer: string | undefined;
+  let answerLead: string | undefined;
   let queryEvents: CalendarEvent[] | undefined;
+  const usage = {
+    promptTokens: result.promptTokens,
+    completionTokens: result.completionTokens,
+    latencyMs: result.latencyMs,
+  };
   let actions: EventAction[] = result.candidates.map((candidate) => ({ type: "create", candidate }));
 
   const validQueryRange = validRangeOrUndefined(result.queryRange);
-  if (result.intent === "query" && result.searchQuery) {
+  if (result.intent === "query" && queryAnswerStrategy() === "select") {
+    const selected = await answerBySelection(
+      userId,
+      userSettings.defaultCalendarId,
+      userSettings.timezone,
+      text,
+      validQueryRange,
+      referenceDate,
+    );
+    ({ answer, answerLead, events: queryEvents } = selected);
+    usage.promptTokens += selected.usage.promptTokens;
+    usage.completionTokens += selected.usage.completionTokens;
+    usage.latencyMs += selected.usage.latencyMs;
+  } else if (result.intent === "query" && result.searchQuery) {
     ({ answer, events: queryEvents } = await answerEventLookup(
       userId,
       userSettings.defaultCalendarId,
@@ -275,15 +359,16 @@ export async function parseInput(
     model: result.model,
     intent: result.intent,
     candidateCount: actions.length,
-    promptTokens: result.promptTokens,
-    completionTokens: result.completionTokens,
-    latencyMs: result.latencyMs,
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    latencyMs: usage.latencyMs,
   });
 
   return {
     intent: result.intent,
     actions,
     answer,
+    answerLead,
     queryEvents,
     usedLlm: true,
     inputType: "text",

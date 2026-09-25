@@ -219,6 +219,26 @@ describe("fastPathQueryRange", () => {
     expect(range?.end.toISOString()).toBe("2026-09-21T06:59:59.999Z");
   });
 
+  it.each([
+    "what's on Sunday",
+    "What plans do i have this weekend",
+    "do I have anything tomorrow?",
+    "show me my schedule for Saturday",
+    "anything on Tuesday",
+  ])("answers the plain listing question %j without Claude", (text) => {
+    expect(fastPathQueryRange(text, REF, TZ)).not.toBeNull();
+  });
+
+  it.each([
+    "am I free Sunday morning?",
+    "does Sasha have anything Monday",
+    "what's my first thing Sunday",
+    "anything after 6pm this week",
+    "when is Sahana's gymnastics on Friday",
+  ])("defers %j to Claude, since it asks for part of the range", (text) => {
+    expect(fastPathQueryRange(text, REF, TZ)).toBeNull();
+  });
+
   it("returns null when there's nothing to anchor a range on", () => {
     expect(fastPathQueryRange("do I have anything going on", REF, TZ)).toBeNull();
   });

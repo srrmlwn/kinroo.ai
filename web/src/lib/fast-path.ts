@@ -146,6 +146,25 @@ function zonedDayBoundaries(instant: Date, timeZone: string): { start: Date; end
   return { start, end };
 }
 
+// Words that only ask "what's on my calendar then". Any other word — a
+// name ("does Sasha have anything"), "free", "first", "next", "morning",
+// "after" — means the question wants something picked out of that range
+// rather than all of it, which needs Claude.
+const LISTING_WORDS = new Set([
+  "what", "whats", "what's", "do", "i", "we", "have", "has", "got", "any", "anything", "plans",
+  "plan", "planned", "events", "event", "is", "are", "there", "on", "for", "going", "happening",
+  "show", "me", "my", "our", "schedule", "calendar", "look", "looks", "like", "does", "the",
+]);
+
+function isPlainListingQuestion(textWithoutDate: string): boolean {
+  const words = textWithoutDate
+    .toLowerCase()
+    .replace(/[?.!,]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.every((word) => LISTING_WORDS.has(word));
+}
+
 // Deterministic date-range resolution for simple queries ("Saturday",
 // "tomorrow", "next week"). Returns null when chrono can't find a
 // reference, so the caller falls back to Claude for phrasing like
@@ -160,6 +179,9 @@ export function fastPathQueryRange(
   if (results.length === 0) return null;
 
   const result = results[0];
+  if (!isPlainListingQuestion(text.slice(0, result.index) + " " + text.slice(result.index + result.text.length))) {
+    return null;
+  }
   const start = result.start.date();
 
   if (result.start.isCertain("hour")) {

@@ -54,6 +54,8 @@ type View =
       // handleParsed) — when present, renderAnswer shows the same tiles as
       // the upcoming-events list instead of a plain bullet-point paragraph.
       answerEvents?: CalendarEvent[];
+      // "Yes." / "No." for a yes/no question, shown above the event tiles.
+      answerLead?: string;
       // What was asked to produce `answer` — same "You said" purpose as
       // ConfirmingState.submittedText.
       answerQuery?: string;
@@ -145,6 +147,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       ...state,
       answer: draft.text,
       answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+      answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
       confirming: undefined,
       notice: undefined,
       noticeError: undefined,
@@ -183,7 +186,7 @@ function persistDraft(view: View) {
   if (view.kind === "ready" && view.confirming) {
     payload = { kind: "confirming", actions: view.confirming.actions };
   } else if (view.kind === "ready" && view.answer !== undefined) {
-    payload = { kind: "answer", text: view.answer, events: view.answerEvents };
+    payload = { kind: "answer", text: view.answer, events: view.answerEvents, lead: view.answerLead };
   } else if (view.kind === "ready") {
     payload = { kind: "ready", inputText };
   }
@@ -458,6 +461,7 @@ function enterReady(
     confirming?: ConfirmingState;
     answer?: string;
     answerEvents?: CalendarEvent[];
+    answerLead?: string;
   },
 ): void {
   avatarMenuOpen = false;
@@ -474,6 +478,7 @@ function enterReady(
     confirming: opts?.confirming,
     answer: opts?.answer,
     answerEvents: opts?.answerEvents,
+    answerLead: opts?.answerLead,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
@@ -497,6 +502,7 @@ async function init() {
       enterReady(me.email, {
         answer: draft.text,
         answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
+        answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
       });
       return;
     }
@@ -587,6 +593,7 @@ async function handleParsed(
       confirming: undefined,
       answer: result.answer ?? "Nothing found.",
       answerEvents: result.queryEvents,
+      answerLead: result.answerLead,
       answerQuery: submittedText,
     });
     return;
@@ -974,7 +981,7 @@ function renderReady(view: Extract<View, { kind: "ready" }>): string {
   const followup = view.confirming
     ? `<div class="below-compose confirm-block">${renderConfirming(view.confirming, view.busy, view.calendarLabel)}</div>`
     : view.answer !== undefined
-      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents, view.answerQuery)}</div>`
+      ? `<div class="below-compose answer-block">${renderAnswer(view.answer, view.answerEvents, view.answerQuery, view.answerLead)}</div>`
       : renderUpcoming(view);
 
   return `
@@ -1211,9 +1218,16 @@ function renderSaidLine(submittedText: string | undefined): string {
   return submittedText ? `<p class="said-line">You said: "${escapeHtml(submittedText)}"</p>` : "";
 }
 
-function renderAnswer(text: string, events: CalendarEvent[] | undefined, submittedText: string | undefined): string {
+function renderAnswer(
+  text: string,
+  events: CalendarEvent[] | undefined,
+  submittedText: string | undefined,
+  lead: string | undefined,
+): string {
+  // With tiles, `text` isn't shown, so a yes/no lead needs its own line;
+  // without them, `text` already starts with it.
   const body = events?.length
-    ? renderEventTiles(events)
+    ? `${lead ? `<p class="answer answer-lead">${escapeHtml(lead)}</p>` : ""}${renderEventTiles(events)}`
     : `<p class="answer">${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
   return `
     ${renderSaidLine(submittedText)}

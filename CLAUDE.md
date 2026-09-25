@@ -38,6 +38,7 @@ npm run dev:extension              # esbuild watch mode -> extension/dist/
 npm run build                      # builds both workspaces
 npm run typecheck                  # type-checks both workspaces
 npm run test                       # unit tests (web only — fast-path parser, answer formatter)
+npm run eval:query --workspace=web # calendar-question eval against the real Claude API (needs ANTHROPIC_API_KEY, ~$0.30/run)
 ```
 
 To load the extension in Chrome during development: `chrome://extensions` → enable Developer mode → "Load unpacked" → select `extension/dist/`. Rebuild (`npm run dev:extension` watches automatically) then click the reload icon on the extension card — Chrome doesn't hot-reload extensions.
