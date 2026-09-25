@@ -8,6 +8,10 @@ web/out/
 web/coverage/
 *.tsbuildinfo
 
+# Next.js regenerates this on every `next dev`/`next build`, flipping its
+# import paths between the two — pure churn, never worth committing.
+web/next-env.d.ts
+
 # env files / local secrets — never commit real values, .env.example is fine
 .env
 .env.*
