@@ -544,23 +544,33 @@ document.addEventListener("keydown", (e) => {
 // but the whole point of a persistent side panel is that it survives tab
 // switches, so by the time "Scan page" is clicked the active tab is very
 // often *not* the one activeTab was granted for anymore, and
-// executeScript fails silently. This requests a standing per-origin
-// permission instead, which — unlike activeTab — doesn't expire when you
-// switch tabs. Called only after a plain scan attempt has already failed
-// (see handleDetectPage), so the common case where activeTab still
-// happens to be valid never shows an extra prompt. Must be reached
-// quickly from the click that triggered it — chrome.permissions.request
-// needs to run within the browser's "recent user gesture" window, and a
-// long chain of awaits before it can cause Chrome to silently refuse.
-async function ensureActiveTabAccess(): Promise<boolean> {
+// executeScript fails. A per-site request isn't possible from here:
+// without the "tabs" permission Chrome hides tab.url for any tab kinroo
+// can't already read, so there's no origin to ask for. Instead this asks,
+// once, for the optional all-sites access the manifest declares
+// (optional_host_permissions) — after that, scanning works on any page
+// without asking again, and the user can revoke it in Chrome's extension
+// settings. Only called after a plain scan attempt has already failed
+// (see handleDetectPage), so the case where activeTab still covers the tab
+// never prompts. chrome.permissions.request must run within the browser's
+// user-activation window after the click that triggered the scan; the few
+// quick awaits before it stay well inside that.
+const ALL_SITES = { origins: ["http://*/*", "https://*/*"] };
+
+async function hasPageAccess(): Promise<boolean> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url || !/^https?:\/\//.test(tab.url)) return false;
-    const origin = `${new URL(tab.url).origin}/*`;
-    const has = await chrome.permissions.contains({ origins: [origin] });
-    if (has) return true;
-    return await chrome.permissions.request({ origins: [origin] });
-  } catch {
+    return await chrome.permissions.contains(ALL_SITES);
+  } catch (err) {
+    console.error("[kinroo] page access check failed", err);
+    return false;
+  }
+}
+
+async function requestPageAccess(): Promise<boolean> {
+  try {
+    return await chrome.permissions.request(ALL_SITES);
+  } catch (err) {
+    console.error("[kinroo] page access request failed", err);
     return false;
   }
 }
@@ -994,18 +1004,29 @@ async function handleDetectPage(current: ReadyView) {
   try {
     let pageText = await scanPageText();
     if (!pageText) {
-      // Empty could mean a genuinely blank page, or it could mean
-      // activeTab no longer covers this tab (see ensureActiveTabAccess) —
-      // ask for standing access and retry once before giving up.
-      const granted = await ensureActiveTabAccess();
-      if (controller.signal.aborted) return;
-      if (!granted) {
-        const notice = "kinroo needs permission to read this page. Allow it when Chrome asks, then scan again.";
-        setState({ ...base, busy: false, busyLabel: undefined, busyKind: undefined, notice, noticeError: true });
-        announce(notice, true);
-        return;
+      // Empty could mean a genuinely blank page, or it could mean activeTab
+      // no longer covers this tab (see requestPageAccess) — ask for standing
+      // access and retry once before giving up. With access already in
+      // place, an empty scan isn't a permission problem — it's a page Chrome
+      // never lets extensions read (chrome:// pages, the Web Store, the
+      // built-in PDF viewer) or a blank one, handled below.
+      if (!(await hasPageAccess())) {
+        if (controller.signal.aborted) return;
+        // Says why while Chrome's prompt is up.
+        const busyLabel = "kinroo needs access to read web pages. Chrome will ask once.";
+        setState({ ...base, busy: true, busyLabel, busyKind: "page", notice: undefined });
+        announce(busyLabel);
+        const granted = await requestPageAccess();
+        if (controller.signal.aborted) return;
+        if (!granted) {
+          const notice =
+            "kinroo can't read this page without access. Scan again to allow it, or paste the text or a screenshot instead.";
+          setState({ ...base, busy: false, busyLabel: undefined, busyKind: undefined, notice, noticeError: true });
+          announce(notice, true);
+          return;
+        }
+        pageText = await scanPageText();
       }
-      pageText = await scanPageText();
     }
     if (controller.signal.aborted) return;
     if (!pageText) {

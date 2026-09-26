@@ -19,7 +19,7 @@ export default function PrivacyPolicy() {
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Privacy Policy</h1>
-        <p className="text-sm text-gray-500">Last updated September 25, 2026</p>
+        <p className="text-sm text-gray-500">Last updated September 26, 2026</p>
       </div>
 
       <p className="text-sm leading-relaxed text-gray-600">
@@ -55,6 +55,20 @@ export default function PrivacyPolicy() {
         </p>
       </Section>
 
+      <Section title="What the Chrome extension can read">
+        <p>
+          The extension reads from web pages in two ways. When you click &ldquo;Find events on
+          this page&rdquo;, it reads that page&rsquo;s visible text. While the kinroo panel is open
+          and its compose box is empty, it also picks up text you&rsquo;ve selected on the current
+          tab and puts it in the compose box. Selected text stays in the panel and isn&rsquo;t
+          sent anywhere until you press send. The first time you scan a page kinroo can&rsquo;t
+          already read, Chrome asks you to allow access to web pages. That access is optional,
+          and you can turn it off at any time under the extension&rsquo;s site access in
+          Chrome&rsquo;s extension settings. kinroo doesn&rsquo;t record which pages you visit or
+          keep your browsing history.
+        </p>
+      </Section>
+
       <Section title="What we store">
         <p>Google Calendar is the only place your event data lives. kinroo does not keep its own copy of your events. What we do store, in a Postgres database:</p>
         <ul className="list-disc pl-5">
@@ -83,7 +97,8 @@ export default function PrivacyPolicy() {
 
       <Section title="How your request is processed">
         <p>
-          When you type a sentence, paste a screenshot, or upload a flyer or PDF, kinroo first
+          When you type a sentence, paste a screenshot, upload a flyer or PDF, or scan a page
+          (its visible text, up to 4,000 characters), kinroo first
           tries to parse it with fast, local pattern-matching. When that isn&rsquo;t confident
           enough — ambiguous phrasing, a photo, a multi-page flyer — the text or image is sent to
           Anthropic&rsquo;s Claude API to extract the event details. That content is processed to

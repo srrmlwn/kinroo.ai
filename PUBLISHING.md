@@ -115,6 +115,7 @@ The dashboard asks you to justify every permission in `manifest.json`. Use these
 | `activeTab` | Grants the above script access only to the tab the user is actively interacting with, for that one action — no standing access to browsing history or arbitrary sites. |
 | `sidePanel` | Renders the extension's UI as a Chrome side panel instead of a popup, so it survives tab switches and can be resized. |
 | Host permission: `https://kinroo.ai/*`, `https://www.kinroo.ai/*` | The extension's own backend API (parsing, calendar writes, auth) — self-hosted, not a third party. |
+| Optional host permission: `http://*/*`, `https://*/*` | Requested at runtime, once, only when the user clicks "Find events on this page" on a tab the extension can't already read (activeTab doesn't carry over when the side panel stays open across tab switches). Used to read that page's visible text for the scan the user asked for, and — while the side panel is open with an empty compose box — to prefill it with text the user has selected on the current tab (kept in the panel, not sent until the user presses send). The user can revoke it in Chrome's extension settings. |
 
 ## 5. Submit
 
