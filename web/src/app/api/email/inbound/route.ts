@@ -54,7 +54,7 @@ function describeAction(action: EventAction): string {
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const expectedSecret = process.env.EMAIL_INGEST_WEBHOOK_SECRET;
-  if (expectedSecret && url.searchParams.get("key") !== expectedSecret) {
+  if (expectedSecret && url.searchParams.get("secret") !== expectedSecret) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
