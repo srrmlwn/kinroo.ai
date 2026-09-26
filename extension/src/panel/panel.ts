@@ -1944,19 +1944,17 @@ function renderAnswerText(text: string): string {
   return blocks.join("");
 }
 
-// A question can match a lot ("what's on next month"). The panel shows the
-// first few, same as the upcoming list, and hands the rest to Google
-// Calendar — opened on the first event not shown, in agenda view, so it
-// picks up where the list stops. The count line above still states the
-// full total.
-const ANSWER_EVENT_LIMIT = 10;
+// An answer lists every event that matches the question — unlike the
+// upcoming list, there's no "see the rest in Google Calendar" link that
+// could stand in for them, since Google Calendar can't be opened filtered
+// to just the matches. The cap is only a guard against a runaway list
+// ("everything this year"); past it, the count line still gives the total
+// and a note says how to narrow it down.
+const ANSWER_EVENT_LIMIT = 100;
 
 function renderAnswerOverflow(events: CalendarEvent[]): string {
-  const more = events.length - ANSWER_EVENT_LIMIT;
-  if (more <= 0) return "";
-  const firstHidden = parseEventDate(events[ANSWER_EVENT_LIMIT].start);
-  const href = `https://calendar.google.com/calendar/r/agenda/${firstHidden.getFullYear()}/${firstHidden.getMonth() + 1}/${firstHidden.getDate()}`;
-  return `<a class="more-link" href="${escapeAttr(href)}" target="_blank" rel="noopener">${plural(more, "more event")} in Google Calendar</a>`;
+  if (events.length <= ANSWER_EVENT_LIMIT) return "";
+  return `<p class="answer-overflow">Showing the first ${ANSWER_EVENT_LIMIT}. Ask about a shorter time range to see the rest.</p>`;
 }
 
 // With tiles, `text` isn't shown, so a yes/no lead ("No.") goes in front of
