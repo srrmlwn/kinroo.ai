@@ -99,13 +99,13 @@ Skip this section unless you're standing up the `add@<domain>` email channel —
 SendGrid login: `kinroo.ai@gmail.com` — reusing the account from the `simple-family-calendar` prototype (see CLAUDE.md's "Prior art") rather than creating a new one, since one account supports multiple authenticated domains and Inbound Parse hosts.
 
 1. Pick a subdomain to receive on, e.g. `mail.kinroo.ai` — this is `EMAIL_INGEST_DOMAIN`.
-2. **SendGrid → Settings → Sender Authentication** — authenticate your root domain (adds the SPF/DKIM DNS records SendGrid gives you). Required for outbound confirmation emails to not get spam-filtered.
+2. **SendGrid → Settings → Sender Authentication** — authenticate your root domain, e.g. `kinroo.ai` (adds the SPF/DKIM DNS records SendGrid gives you). This is `EMAIL_FROM_DOMAIN` — deliberately the root domain, not the `EMAIL_INGEST_DOMAIN` subdomain from step 1: SendGrid rejects outbound mail sent "From" any domain it hasn't itself authenticated, even a subdomain of one that is, with a 403 Sender Identity error.
 3. **SendGrid → Settings → Inbound Parse → Add Host & URL**:
    - Receiving domain/subdomain: `EMAIL_INGEST_DOMAIN` from step 1.
    - Destination URL: `https://<your-deployed-api>/api/email/inbound?secret=<EMAIL_INGEST_WEBHOOK_SECRET>` — has to be a publicly reachable HTTPS URL, so this step needs `web/` actually deployed (see "Not covered here" below); it can't point at `localhost`.
    - This step also tells you the MX record to add at your DNS provider for that subdomain — add it and wait for propagation.
 4. **SendGrid → Settings → API Keys → Create API Key** — needs "Mail Send" permission. This is `SENDGRID_API_KEY`.
-5. Generate `EMAIL_INGEST_WEBHOOK_SECRET` with `openssl rand -base64 32` and fill in all three new vars in `web/.env` (and your Vercel project's env config, once deployed).
+5. Generate `EMAIL_INGEST_WEBHOOK_SECRET` with `openssl rand -base64 32` and fill in all four new vars in `web/.env` (and your Vercel project's env config, once deployed).
 6. Test by emailing `add@<EMAIL_INGEST_DOMAIN>` something like "dentist appointment 9am tomorrow" from the address you signed into the extension with — you should get a confirmation email back asking to reply YES/NO.
 
 This can't be verified from this repo alone (needs a real domain, DNS propagation, and a public deployment) — the code path (`api/email/inbound`) is covered by unit tests on its pure parsing logic (`lib/email-inbound.test.ts`) but not exercised end-to-end.
@@ -116,7 +116,7 @@ As of this writing, no Vercel project exists for kinroo.ai yet — this is the s
 
 1. **Create the project**: Vercel → Add New → Project → import the `kinroo.ai` GitHub repo.
    - This repo is an npm-workspaces monorepo (`web/` + `extension/`), so set **Root Directory** to `web` in the project's settings — Vercel then runs the build from there and auto-detects Next.js. `extension/` is never deployed; it isn't a web app.
-2. **Environment variables**: Project Settings → Environment Variables. Copy every value from your local `web/.env` in (`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, plus `SENDGRID_API_KEY`/`EMAIL_INGEST_DOMAIN`/`EMAIL_INGEST_WEBHOOK_SECRET` if you're using email ingest). Use a separate Neon database/branch for production rather than pointing at your local dev database.
+2. **Environment variables**: Project Settings → Environment Variables. Copy every value from your local `web/.env` in (`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, plus `SENDGRID_API_KEY`/`EMAIL_INGEST_DOMAIN`/`EMAIL_FROM_DOMAIN`/`EMAIL_INGEST_WEBHOOK_SECRET` if you're using email ingest). Use a separate Neon database/branch for production rather than pointing at your local dev database.
 3. **Domain**: Project Settings → Domains → add `kinroo.ai`.
    - `kinroo.ai` is an **apex/root domain** — DNS doesn't allow a CNAME at the zone apex, so Vercel will ask for either (a) an **A record** pointing the apex at Vercel's IP, or (b) switching the domain's nameservers to Vercel's. A CNAME only applies if you also want a subdomain (e.g. `www.kinroo.ai`) pointing at Vercel. Vercel's domain-add flow tells you exactly which records to create once you add the domain, based on where `kinroo.ai` is currently registered/hosted.
    - Where `kinroo.ai` is registered determines who edits those DNS records — check the registrar before starting; it isn't currently attached to this Vercel account's domains.
