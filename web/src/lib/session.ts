@@ -19,6 +19,11 @@ export async function verifySessionToken(
 ): Promise<string | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    // Session tokens never carry a `purpose`. Every other token signed with
+    // this secret does (the settings handoff, email undo links), and must
+    // not work as a bearer session — an undo link sits in an email for 30
+    // days, and full API access is far more than it's meant to grant.
+    if (payload.purpose !== undefined) return null;
     return typeof payload.sub === "string" ? payload.sub : null;
   } catch {
     return null;
@@ -78,3 +83,36 @@ export async function getUserId(request: Request): Promise<string | null> {
 }
 
 export { SESSION_COOKIE, SESSION_HEADER };
+
+// Signed into the undo links in an auto-apply summary email (lib/email-batch.ts).
+// Holding the link is the authorization — it only ever goes to the user's
+// own inbox — so it's scoped as tightly as possible: one batch, one item (or
+// "all"), one user, its own `purpose`, and an expiry.
+export interface UndoLinkClaims {
+  userId: string;
+  batchId: string;
+  item: number | "all";
+}
+
+const UNDO_LINK_PURPOSE = "email-undo";
+
+export async function createUndoLinkToken(claims: UndoLinkClaims): Promise<string> {
+  return new SignJWT({ sub: claims.userId, purpose: UNDO_LINK_PURPOSE, b: claims.batchId, i: claims.item })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("30d")
+    .sign(getSecret());
+}
+
+export async function verifyUndoLinkToken(token: string): Promise<UndoLinkClaims | null> {
+  try {
+    const { payload } = await jwtVerify(token, getSecret());
+    if (payload.purpose !== UNDO_LINK_PURPOSE) return null;
+    if (typeof payload.sub !== "string" || typeof payload.b !== "string") return null;
+    const item = payload.i;
+    if (item !== "all" && !(typeof item === "number" && Number.isInteger(item) && item > 0)) return null;
+    return { userId: payload.sub, batchId: payload.b, item };
+  } catch {
+    return null;
+  }
+}

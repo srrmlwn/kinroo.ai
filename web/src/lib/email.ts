@@ -18,6 +18,13 @@ export function confirmReplyAddress(pendingActionId: string): string {
   return `confirm+${pendingActionId}@${requireEnv("EMAIL_INGEST_DOMAIN")}`;
 }
 
+// Reply-to on an auto-apply summary email: a reply lands back on the
+// inbound webhook addressed to this batch, so "remove 2" knows which
+// email's item 2 it means.
+export function batchReplyAddress(batchId: string): string {
+  return `batch+${batchId}@${requireEnv("EMAIL_INGEST_DOMAIN")}`;
+}
+
 // Transactional send via SendGrid's Mail Send API — this project's only
 // outbound email need is the reply-to-confirm loop, so no template/queue
 // system, just a direct API call. Domain auth (SPF/DKIM) for the sending

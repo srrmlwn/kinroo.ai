@@ -19,7 +19,7 @@ export default function PrivacyPolicy() {
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Privacy Policy</h1>
-        <p className="text-sm text-gray-500">Last updated September 26, 2026</p>
+        <p className="text-sm text-gray-500">Last updated September 27, 2026</p>
       </div>
 
       <p className="text-sm leading-relaxed text-gray-600">
@@ -37,8 +37,9 @@ export default function PrivacyPolicy() {
           <li>
             <code className="text-xs">calendar.events</code> — see, create, edit, and delete events
             on your calendar. kinroo reads events to answer your questions and to warn you about
-            conflicts. Every write is shown to you for confirmation before it happens; kinroo never
-            creates or changes an event silently.
+            conflicts. kinroo never creates or changes an event silently: every change is either
+            shown to you for confirmation first, or — if you&rsquo;ve turned on adding without asking
+            for that channel — reported to you right after, with a one-click undo.
           </li>
           <li>
             <code className="text-xs">calendar.calendarlist.readonly</code> — list the names of
@@ -70,7 +71,11 @@ export default function PrivacyPolicy() {
       </Section>
 
       <Section title="What we store">
-        <p>Google Calendar is the only place your event data lives. kinroo does not keep its own copy of your events. What we do store, in a Postgres database:</p>
+        <p>
+          Google Calendar is the only place your events live. kinroo doesn&rsquo;t keep its own calendar, and the
+          only event details it stores are the undo record for changes it made from your emails (below). What we
+          do store, in a Postgres database:
+        </p>
         <ul className="list-disc pl-5">
           <li>Your Google account ID, email, and name, so we know who you are.</li>
           <li>
@@ -88,8 +93,11 @@ export default function PrivacyPolicy() {
             of your request.
           </li>
           <li>
-            If you use email-based event requests: a temporary record of the action you asked for
-            by email, held only until you reply to confirm or it expires.
+            If you send kinroo events by email: a record of each change it made from that email
+            (the email&rsquo;s subject, and the title, time, and location of each event it added,
+            changed, or canceled), so you can undo or correct them from kinroo&rsquo;s reply. If you
+            have email auto-add turned off, a temporary record of the change you asked for instead,
+            held only until you reply to confirm or it expires.
           </li>
           <li>If you join our waitlist: the email address you submit.</li>
         </ul>
@@ -118,7 +126,12 @@ export default function PrivacyPolicy() {
           store it.
         </p>
         <p>
-          Nothing is written to your calendar until you review and confirm it in the extension.
+          In the extension, nothing is written to your calendar until you review and confirm it,
+          unless you&rsquo;ve turned on adding without asking in settings. For email, kinroo adds
+          what it finds right away by default and replies with what it did, so you can undo or
+          correct anything; you can switch email to reply-to-confirm instead. When you reply to
+          one of those emails with a correction (&ldquo;1 is at 7pm&rdquo;), your reply and the
+          list of events it refers to are sent to the Claude API to work out what to change.
         </p>
       </Section>
 

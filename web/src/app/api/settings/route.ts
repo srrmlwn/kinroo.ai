@@ -17,9 +17,8 @@ function serialize(row: typeof settings.$inferSelect) {
     timezone: row.timezone,
     defaultEventDurationMin: row.defaultEventDurationMin,
     defaultCalendarId: row.defaultCalendarId,
-    // Not editable in v1 — confirm-before-write is a hard product rule, not
-    // a preference (see CLAUDE.md). Surfaced for transparency only.
-    confirmBeforeWrite: row.confirmBeforeWrite,
+    emailAutoApply: row.emailAutoApply,
+    extensionAutoApply: row.extensionAutoApply,
   };
 }
 
@@ -45,6 +44,8 @@ export async function PATCH(request: Request) {
     timezone: string;
     defaultEventDurationMin: number;
     defaultCalendarId: string;
+    emailAutoApply: boolean;
+    extensionAutoApply: boolean;
   }> = {};
 
   if (typeof body.timezone === "string" && body.timezone.trim()) {
@@ -59,6 +60,9 @@ export async function PATCH(request: Request) {
   if (typeof body.defaultCalendarId === "string" && body.defaultCalendarId.trim()) {
     update.defaultCalendarId = body.defaultCalendarId.trim();
   }
+
+  if (typeof body.emailAutoApply === "boolean") update.emailAutoApply = body.emailAutoApply;
+  if (typeof body.extensionAutoApply === "boolean") update.extensionAutoApply = body.extensionAutoApply;
 
   if (Object.keys(update).length === 0) {
     return Response.json({ error: "No valid fields to update" }, { status: 400 });

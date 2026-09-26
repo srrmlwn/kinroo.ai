@@ -14,15 +14,14 @@ A natural-language interface layer on top of Google Calendar — not a calendar 
 3. Chrome extension, edit/cancel mode — "cancel my dentist appointment", "move my 3pm to 4pm" finds the matching existing event(s) by keyword search over a Claude-inferred date window and shows them in the same confirm list, tagged as an update or delete rather than a create.
 4. Recurring events — a create request with repeating phrasing ("every Monday", "weekly for 8 weeks") carries an iCalendar RRULE through to `events.insert`. If the text also names specific occurrences to skip ("every Monday except the 26th"), those become an `EXDATE` line alongside the `RRULE` line.
 5. Conflict detection — the confirm list flags when a create candidate overlaps something already on the calendar, checked against a single `events.list` call over the candidates' combined time range.
-6. Single Google account per user. Confirm-before-write on every create/update/delete, including a bulk confirm list when one input yields multiple candidate events (e.g. a season schedule flyer) or multiple ambiguous matches for an edit/cancel request.
+6. Single Google account per user. Every create/update/delete is either confirmed first — including a bulk confirm list when one input yields multiple candidate events (e.g. a season schedule flyer) or multiple ambiguous matches for an edit/cancel request — or, with auto-apply on for that channel, written immediately and reported with an undo (see Auto-apply below).
 7. Web settings page (`/settings`) — timezone, default event duration, and calendar are editable outside the extension. The calendar field is a real picker over the user's actual Google calendars (`GET /api/settings/calendars`, filtered to ones they can write to) rather than a raw ID field — this needed a second, read-only OAuth scope (see Auth flow below), so an account connected before that scope existed falls back to a plain text field with a prompt to reconnect. Since there's no hosted web login, the extension's panel mints a short-lived handoff token that the settings page exchanges for a session cookie (`api/auth/handoff`) rather than the app growing a second OAuth flow.
-8. Email ingest (`add@<domain>`) — a SendGrid Inbound Parse webhook runs an emailed request through the same parse pipeline as the extension. Confirm-before-write still applies with no panel available, so email uses reply-to-confirm instead: kinroo replies asking "add this? reply YES/NO," and only writes once that reply comes back. v1 queues one action per inbound email (the best/first match); an email that would produce several ambiguous or multi-candidate results only confirms the first — see `api/email/inbound`.
+8. Email ingest (`add@<domain>`) — a SendGrid Inbound Parse webhook runs an emailed request through the same parse pipeline as the extension. With email auto-apply on (the default), every create/update/delete it finds is written immediately and kinroo replies with a numbered summary: each change has an undo link and an edit link, and the user can reply in plain words ("1 is at 7pm, remove 2") — see Auto-apply. With it off, or when the sender fails the stricter DKIM check auto-apply requires, email falls back to reply-to-confirm: kinroo asks "add this? reply YES/NO" and only writes once that reply comes back (one action per email — the best/first match).
 9. Extension UI — the compose/confirm surface is a Chrome **side panel** (`chrome.sidePanel`, opened via the toolbar icon), not the old action popup: it survives ordinary focus loss and tab switches instead of being destroyed, and its width is user-resizable rather than fixed. The compose box reads as a single command card — attach, "Scan page," and send controls live inside its toolbar rather than as separate full-width buttons — with account details (email, default calendar, sign out) tucked behind an avatar dropdown instead of sitting on-screen as permanent text. On top of compose/confirm, the ready view shows the next 5 upcoming events as compact tiles (`GET /api/events`, relative day labels — "Today"/"Tomorrow"/"Mon 21" — plus a time badge) and a link to open Google Calendar directly, and a one-click **Undo** after a confirm (built by reusing `applyActions`/`POST /api/events` with the inverse of whatever was just applied — a delete for a create, the pre-edit fields for an update, a recreate for a delete). Colors follow `prefers-color-scheme` for dark mode.
 
 **Explicitly out of scope** (do not build, but see "Family-readiness notes" below for the conventions that keep these open):
 - WhatsApp/SMS — phase 4.
 - Family / multi-account / shared calendars.
-- Auto-commit without confirmation (modeled as a settings flag, not built).
 - Proactive notifications (morning briefing, conflict alerts) — conflict *detection* at confirm time is in scope (see above); unprompted notifications are not.
 - Editing which occurrence of a recurring series to change (Google's "this event" / "this and following" / "all events" choice) — update/delete acts on the single event instance the search matched.
 
@@ -49,16 +48,32 @@ Next.js app (web/, deployed to Vercel)  ◄────────────�
         │
         ├──► Google Calendar API (events.insert/patch/delete, events.list) — the data
         ├──► Claude API — LLM fallback parsing (text, and always for image/PDF input)
-        ├──► SendGrid Mail Send API — outbound reply-to-confirm emails
+        ├──► SendGrid Mail Send API — outbound summaries and reply-to-confirm emails
         └──► Postgres (Neon) — thin: users, oauth tokens, settings, email identities,
-             a small pending-email-actions confirm queue, LLM telemetry only
+             email confirm queue + auto-apply batches, LLM telemetry only
 ```
 
 No separate server process. No events table. Email ingest is just another route handler calling the same `parseInput`/`google-calendar.ts` functions the extension uses — not a new service. WhatsApp/SMS, when it arrives, follows the same shape.
 
+## Auto-apply
+
+Each channel either confirms before writing or writes immediately and reports back, per the user's settings (`email_auto_apply`, `extension_auto_apply`). Rollback is what makes the second mode safe: kinroo never adds guests, so a wrong event only ever appears on the user's own calendar, and every auto-applied change comes with a one-click undo.
+
+**Email (on by default).** A new submission is parsed as usual, then:
+1. Every complete create, update, and delete is written. Creates missing a date or title are held back as "needs info" instead of guessing. Creates that match an event already on the calendar (same start, overlapping title) are skipped as duplicates. Added events get a description line, `Added by kinroo.ai from "<subject>"`.
+2. The results are stored as one `email_batches` row of numbered items.
+3. kinroo replies from the batch's reply-to address (`batch+<id>@<domain>`) with a plain-text numbered summary: each written item has an undo link (Remove / Undo) and its Google Calendar edit link, plus "Undo everything" when there's more than one.
+4. A reply in plain words is mapped by Claude (`interpretSummaryReply`) onto undo/change operations on the numbered items; the app checks each one against the batch, applies it, and replies with the updated summary. Filling in a date for a "needs info" item adds it.
+
+Auto-apply only runs when the message carries a passing DKIM signature from the sender's own domain (`isDkimAligned`) — stricter than the SPF-or-DKIM check that gates the webhook at all, since a forged From address would otherwise write to someone's calendar. Anything that fails it falls back to reply-to-confirm, as does everything when the setting is off.
+
+**Extension (off by default).** When on, the panel saves parsed actions through the same path as its confirm button — ending on the usual "Added…" notice with Undo — without showing the review screen, unless something needs a decision: a row missing its date or title, or an edit/cancel that matched more than one event.
+
+**Measuring it.** Each batch item records whether it was later undone or edited, so the rate of corrections to auto-applied changes is queryable — the evidence for whether confirm-first is still needed anywhere.
+
 ## Data model (v1)
 
-Only what's needed to authenticate a user, remember their preferences, and (as of email ingest) hold a small confirm-queue. No events, no family members — Google Calendar stays the only event store.
+Only what's needed to authenticate a user, remember their preferences, and run the email channel: a small confirm queue, and `email_batches` — a record of what email auto-apply changed, kept so each change can be undone or corrected from the summary. Batch items hold copies of the events kinroo wrote, but only as an undo log; Google Calendar stays the only event store, and nothing reads events back from here. No family members.
 
 ```
 users
@@ -79,7 +94,8 @@ settings
   user_id                       uuid fk -> users.id
   timezone                      text
   default_event_duration_min    int default 30
-  confirm_before_write          boolean default true   -- always true in v1; UI to change it ships later
+  email_auto_apply              boolean default true   -- email writes immediately and reports back (see Auto-apply)
+  extension_auto_apply          boolean default false  -- extension skips its review screen when nothing needs a decision
   default_calendar_id           text default 'primary'
 
 email_identities   -- address -> user_id lookup for the email channel; see Family-readiness notes
@@ -95,6 +111,14 @@ pending_email_actions   -- reply-to-confirm queue for email ingest; nothing here
   from_address        text
   created_at          timestamptz
   expires_at          timestamptz
+
+email_batches   -- what email auto-apply did for one inbound email; drives the summary, undo links, and reply edits
+  id                  uuid pk
+  user_id             uuid fk -> users
+  from_address        text
+  subject             text        -- the inbound email's subject, shown in the summary and the "Added by" label
+  items               jsonb       -- numbered items: the parsed EventAction, status (applied/undone/needs-info/duplicate/failed), event id, edited flag
+  created_at, updated_at  timestamptz
 
 llm_calls   -- telemetry, cheap to add now, valuable before any architecture decisions later
   id                  uuid pk
@@ -175,9 +199,10 @@ All implemented as of this revision:
 - `GET /api/events?start=&end=` — range read, used internally by the query and update/delete search paths, and by the panel's conflict check.
 - `POST /api/auth/handoff` — bearer-authed; mints a short-lived, purpose-scoped JWT for the extension's "Settings" link to hand off to the web app.
 - `GET /api/auth/handoff?token=` — verifies that token, sets an HttpOnly `session` cookie, and redirects to `/settings`.
-- `GET/PATCH /api/settings` — reads/updates `timezone`, `default_event_duration_min`, `default_calendar_id` for the authenticated user (cookie or bearer). `confirm_before_write` is read-only.
+- `GET/PATCH /api/settings` — reads/updates `timezone`, `default_event_duration_min`, `default_calendar_id`, `email_auto_apply`, `extension_auto_apply` for the authenticated user (cookie or bearer).
 - `GET /api/settings/calendars` — the user's Google calendars they can write to, for the settings page's calendar picker. 403 `{ error: "insufficient_scope" }` if their stored token predates the `calendar.calendarlist.readonly` scope.
-- `POST /api/email/inbound` — SendGrid Inbound Parse webhook (`multipart/form-data`; guarded by a `?key=` shared secret, not a signature). The claimed sender must pass SPF or DKIM per SendGrid's own verdict fields — the shared secret only proves the request came from SendGrid, not that the "From" header is real, so a failing sender is dropped silently rather than trusted. A new submission to `add@<domain>` runs the same parse pipeline as `/api/parse` and, if it produces an action, emails back a reply-to-confirm request; a reply to `confirm+<id>@<domain>` applies or cancels that pending action based on a yes/no read of the reply body.
+- `POST /api/email/inbound` — SendGrid Inbound Parse webhook (`multipart/form-data`; guarded by a `?key=` shared secret, not a signature). The claimed sender must pass SPF or DKIM per SendGrid's own verdict fields — the shared secret only proves the request came from SendGrid, not that the "From" header is real, so a failing sender is dropped silently rather than trusted. A new submission to `add@<domain>` runs the same parse pipeline as `/api/parse` and, if it produces an action, emails back a reply-to-confirm request; a reply to `confirm+<id>@<domain>` applies or cancels that pending action based on a yes/no read of the reply body. A reply to `batch+<id>@<domain>` is a correction to an auto-apply summary (see Auto-apply).
+- `GET /email/undo?t=<token>` + `POST /api/email/undo` — the undo links in an auto-apply summary. The link opens a page showing what it covers; only the page's button (a POST) changes anything, since mail scanners and link previews fetch every link in a message. The token is a signed JWT scoped to one user, one batch, and one item (or "all"), with its own `purpose` so it can't be used as a session token, valid 30 days.
 
 `/api/settings` and the extension-facing routes accept either an `x-kinroo-session: <session token>` header or the `session` cookie set by the handoff flow. `/api/health`, `/api/auth/google/exchange`, and `/api/email/inbound` (which authenticates the sender by resolved email identity instead) take neither.
 
@@ -193,7 +218,7 @@ All implemented as of this revision:
 - Typing "team standup every Monday at 9am for 10 weeks" creates a single recurring series, not 10 separate events or one non-repeating event.
 - Creating an event that overlaps something already on the calendar shows a conflict warning in the confirm list before the write happens.
 - Clicking "Settings" in the panel opens `/settings` already signed in (no separate login), and changing the timezone there is reflected the next time the extension resolves a relative date.
-- Emailing `add@<domain>` a plain-English event gets a reply asking to confirm; replying "yes" creates the real event, and nothing is written if there's no reply or the reply is "no" (email confirm-before-write, exercised as unit tests on the parsing helpers since the full loop needs a live domain — see SETUP.md §10).
+- Emailing `add@<domain>` a plain-English event, or a forwarded email listing several, adds every complete event and replies with a numbered summary; the Remove link and a reply like "remove 2" each undo one of them, and "1 is at 7pm" moves one. With email auto-apply off, it instead replies asking to confirm, and nothing is written until the reply is "yes". (Covered by route-level tests with Calendar, Claude, and the database mocked — `api/email/inbound/route.test.ts` — since the full loop needs a live domain; see SETUP.md §10.)
 - `llm_calls` has rows for both fast-path and LLM-fallback calls across all input types, so we can tell after a few days of use what fraction of inputs need the LLM, and how much volume is text vs. image/PDF.
 
 ## Open questions (revisit with real usage data, not now)
@@ -202,4 +227,4 @@ All implemented as of this revision:
 - How strict the fast-path regex should be before falling back to Claude — needs telemetry to tune, not a guess.
 - Rate limiting / abuse prevention on `/api/parse` once it's exposed beyond just the extension's own users.
 - Max image/PDF size and page count `/api/parse` accepts, and what the panel shows while a larger file is processing (image/PDF calls will be slower than text).
-- Confirm-before-write is universal in v1; the `confirm_before_write` settings flag exists in the schema but has no UI to change it yet — revisit once parse accuracy is measured.
+- Auto-apply defaults: on for email, off for the extension. Revisit the extension default once `email_batches` shows how often auto-applied changes get undone or edited.

@@ -12,6 +12,9 @@ export interface EventCandidate {
   end: string; // ISO 8601 datetime, or "" if unknown
   timezone?: string;
   location?: string;
+  // Free-text notes on the event. Only set by kinroo when it adds an event
+  // without a review step (email auto-apply), to label where it came from.
+  description?: string;
   // iCalendar lines (RFC 5545), e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=10", "EXDATE:20261126T180000Z"].
   // Passed straight through to the Calendar API's `recurrence` field.
   recurrence?: string[];
@@ -32,6 +35,8 @@ export interface CalendarEvent {
   start: string;
   end: string;
   location?: string;
+  // The event's page in Google Calendar — where the user edits it.
+  htmlLink?: string;
 }
 
 // A confirm-list row is one of three write intents against an existing or
@@ -57,6 +62,7 @@ export class CalendarApiError extends Error {
 
 interface GoogleEventResource {
   id: string;
+  htmlLink?: string;
   summary?: string;
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
@@ -70,6 +76,7 @@ function toCalendarEvent(data: GoogleEventResource, fallback: EventCandidate): C
     start: data.start.dateTime ?? data.start.date ?? fallback.start,
     end: data.end.dateTime ?? data.end.date ?? fallback.end,
     location: data.location,
+    htmlLink: data.htmlLink,
   };
 }
 
@@ -139,6 +146,7 @@ export async function insertEvent(
       body: JSON.stringify({
         summary: candidate.title,
         location: candidate.location,
+        description: candidate.description,
         start: toEventTime(candidate.start, candidate.timezone),
         end: toEventTime(candidate.end, candidate.timezone),
         recurrence: candidate.recurrence,
@@ -245,6 +253,7 @@ export async function listEvents(
   const data = (await res.json()) as {
     items: Array<{
       id: string;
+      htmlLink?: string;
       summary?: string;
       start: { dateTime?: string; date?: string };
       end: { dateTime?: string; date?: string };
@@ -257,6 +266,7 @@ export async function listEvents(
     start: item.start.dateTime ?? item.start.date ?? "",
     end: item.end.dateTime ?? item.end.date ?? "",
     location: item.location,
+    htmlLink: item.htmlLink,
   }));
 }
 

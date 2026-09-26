@@ -1,3 +1,4 @@
+import { getUserSettings } from "@/lib/user-settings";
 import { requireUser } from "@/lib/require-user";
 import { parseInput, type ParseInput } from "@/lib/parse";
 
@@ -48,8 +49,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await parseInput(auth.userId, input, "extension");
+    const [result, settings] = await Promise.all([
+      parseInput(auth.userId, input, "extension"),
+      getUserSettings(auth.userId),
+    ]);
     return Response.json({
+      // Whether the panel may save these actions without showing its review
+      // screen first (settings.extension_auto_apply) — sent with each
+      // result so a changed setting applies on the very next parse.
+      autoApply: settings.extensionAutoApply,
       intent: result.intent,
       actions: result.actions,
       answer: result.answer,

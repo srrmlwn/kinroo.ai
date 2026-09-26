@@ -158,14 +158,14 @@ export async function extractWithClaude(
     `If a candidate event has no explicit duration or end time, set end = start + ${opts.defaultDurationMin} minutes.`,
     `If the input gives no date or time for an event, omit its start and end rather than guessing one, and if nothing names the event, omit its title — the user fills in whatever is missing before anything is saved.`,
     opts.forceCreateIntent
-      ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
+      ? `This input is a document — an image, a PDF, or pasted text such as an email, newsletter, or schedule — not a typed request, so always set intent to "create", even if it mentions changes or cancellations. Extract every distinct event it describes as its own candidate; there may be many. Dates that only say when something was posted, sent, or updated (announcement timestamps, "sent Mon 9:08pm") are not events.`
       : [
           `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon", "when is my dentist appointment") rather than a request to add something — in that case leave candidates empty. If it asks about a time period, set query_start/query_end to that range. If it asks about a specific event ("when is Maya's piano lesson", "where is the team offsite"), set search_query to describe it, and set query_start/query_end only if the question also gives a date hint.`,
           `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, and put only the fields that should change in changes. Only set search_start/search_end if the text itself gives a date/time hint for the event you're searching for ("tomorrow's dentist", "my Friday meeting") — if it gives none ("cancel my dentist appointment"), omit both rather than guessing a narrow range; the backend searches broadly by default when they're absent.`,
           `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
         ].join(" "),
-    `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body. If the text also names specific dates to skip within that recurrence ("except the following dates: ..."), list each one in exception_dates.`,
+    `If a create request describes a repeating event with a definite schedule ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body — but not for a loose pattern ("usually the last Wednesday, or sometimes mid-month"); add just the dated occurrence the text gives. If the text also names specific dates to skip within that recurrence ("except the following dates: ..."), list each one in exception_dates.`,
   ].join(" ");
 
   const content: Anthropic.ContentBlockParam[] =
@@ -353,5 +353,103 @@ export async function selectAnswerEvents(
     promptTokens: response.usage.input_tokens,
     completionTokens: response.usage.output_tokens,
     latencyMs: Date.now() - startedAt,
+  };
+}
+
+const REPLY_TOOL: Anthropic.Tool = {
+  name: "apply_reply_to_summary",
+  description:
+    "Records what the user's reply asks kinroo to do to the numbered events in a summary it sent. Each operation targets one numbered item. The app carries out the operations and reports back; it does nothing for items no operation mentions.",
+  input_schema: {
+    type: "object",
+    properties: {
+      operations: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            item: { type: "integer", description: "The item's number in the summary." },
+            op: {
+              type: "string",
+              enum: ["undo", "change"],
+              description:
+                "'undo' reverses what kinroo did to that item: removes an event it added, reverts an event it changed, or restores one it canceled. 'change' edits the item — set only the fields the reply changes.",
+            },
+            title: { type: "string" },
+            start: { type: "string", description: "ISO 8601 datetime with UTC offset." },
+            end: { type: "string", description: "ISO 8601 datetime with UTC offset. Omit unless the reply states an end or a length." },
+            location: { type: "string" },
+          },
+          required: ["item", "op"],
+        },
+      },
+      unclear: {
+        type: "boolean",
+        description:
+          "True if the reply asks for something that can't be expressed as undo/change on the listed items, or doesn't say which item it means when that matters. An acknowledgement like 'thanks' or 'looks good' is not unclear — it's zero operations.",
+      },
+    },
+    required: ["operations", "unclear"],
+  },
+};
+
+export interface ReplyOperation {
+  item: number;
+  op: "undo" | "change";
+  title?: string;
+  start?: string;
+  end?: string;
+  location?: string;
+}
+
+// Turns a free-text reply to an auto-apply summary email ("1 is at 7pm,
+// remove 2") into per-item operations. Only returns operations — the app
+// validates each against the batch and does the calendar writes itself.
+export async function interpretSummaryReply(
+  replyText: string,
+  items: Array<{ n: number; line: string }>,
+  opts: { timezone: string; referenceDate: Date },
+): Promise<{ operations: ReplyOperation[]; unclear: boolean; model: string; promptTokens: number; completionTokens: number }> {
+  const referenceLabel = opts.referenceDate.toLocaleString("en-US", {
+    timeZone: opts.timezone,
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+  const system = [
+    `The user emailed kinroo.ai some text; kinroo put the events it found on their calendar and replied with a numbered summary. The user has now replied to that summary. Work out what their reply asks for, as operations on the numbered items.`,
+    `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}). Resolve relative dates and times against it, and write datetimes as ISO 8601 with the UTC offset in effect on that date.`,
+    `A new time on an event that already has a date keeps that date unless the reply names a different day. "Everything", "all of them" and similar apply to every listed item. Items the reply doesn't mention get no operation.`,
+  ].join(" ");
+  const summary = items.map((i) => `${i.n}. ${i.line}`).join("\n");
+
+  const response = await getClient().messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 1024,
+    system,
+    tools: [REPLY_TOOL],
+    tool_choice: { type: "tool", name: "apply_reply_to_summary" },
+    messages: [{ role: "user", content: `Summary items:\n${summary}\n\nUser's reply:\n${replyText}` }],
+  });
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+  );
+  if (!toolUse) throw new Error("Claude did not return the expected tool call");
+  const parsed = toolUse.input as { operations?: unknown; unclear?: unknown };
+  const operations = Array.isArray(parsed.operations)
+    ? parsed.operations.filter(
+        (op): op is ReplyOperation =>
+          typeof op === "object" &&
+          op !== null &&
+          Number.isInteger((op as ReplyOperation).item) &&
+          ((op as ReplyOperation).op === "undo" || (op as ReplyOperation).op === "change"),
+      )
+    : [];
+  return {
+    operations,
+    unclear: parsed.unclear === true,
+    model: DEFAULT_MODEL,
+    promptTokens: response.usage.input_tokens,
+    completionTokens: response.usage.output_tokens,
   };
 }

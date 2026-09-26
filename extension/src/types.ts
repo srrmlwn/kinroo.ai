@@ -32,6 +32,8 @@ export interface ParseResponse {
   answerLead?: string; // "Yes." / "No." for a yes/no question
   queryEvents?: CalendarEvent[];
   usedLLM: boolean;
+  // The user's "add without asking" setting for the extension.
+  autoApply?: boolean;
   inputType: "text" | "image" | "pdf";
 }
 
