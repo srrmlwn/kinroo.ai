@@ -190,6 +190,14 @@ async function findEventActions(
   );
 }
 
+// Past this length, text is treated as a document to extract events from
+// rather than a typed request (see parseInput).
+const DOCUMENT_TEXT_CHARS = 500;
+
+export function isDocumentText(text: string): boolean {
+  return text.trim().length > DOCUMENT_TEXT_CHARS;
+}
+
 export async function parseInput(
   userId: string,
   input: ParseInput,
@@ -199,12 +207,19 @@ export async function parseInput(
   const referenceDate = new Date();
 
   // Image/PDF always goes straight to Claude — an uploaded file is never a
-  // query or an edit request, and the fast path can't read pixels.
-  if (input.kind !== "text") {
+  // query or an edit request, and the fast path can't read pixels. Long
+  // pasted or emailed text (a newsletter, an activity digest, a schedule) is
+  // handled the same way: nobody types 500 characters to ask a question or
+  // cancel one event, and treating it as a document gets every event in it
+  // extracted — the typed-request prompt pulled out one, and an incidental
+  // "change" or "cancel" in the text could get it read as an edit.
+  if (input.kind !== "text" || isDocumentText(input.text)) {
     const claudeInput: ClaudeInput =
-      input.kind === "image"
-        ? { kind: "image", base64: input.base64, mediaType: input.mediaType }
-        : { kind: "pdf", base64: input.base64 };
+      input.kind === "text"
+        ? { kind: "text", text: input.text.trim() }
+        : input.kind === "image"
+          ? { kind: "image", base64: input.base64, mediaType: input.mediaType }
+          : { kind: "pdf", base64: input.base64 };
 
     const result = await extractWithClaude(claudeInput, {
       timezone: userSettings.timezone,

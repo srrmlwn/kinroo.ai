@@ -158,14 +158,14 @@ export async function extractWithClaude(
     `If a candidate event has no explicit duration or end time, set end = start + ${opts.defaultDurationMin} minutes.`,
     `If the input gives no date or time for an event, omit its start and end rather than guessing one, and if nothing names the event, omit its title — the user fills in whatever is missing before anything is saved.`,
     opts.forceCreateIntent
-      ? `This input is an image or document, not a typed question — always set intent to "create". Extract every distinct event you can find; a flyer or schedule may contain many.`
+      ? `This input is a document — an image, a PDF, or pasted text such as an email, newsletter, or schedule — not a typed request, so always set intent to "create", even if it mentions changes or cancellations. Extract every distinct event it describes as its own candidate; there may be many. Dates that only say when something was posted, sent, or updated (announcement timestamps, "sent Mon 9:08pm") are not events.`
       : [
           `Set intent to "query" if the text is a question about the calendar (e.g. "what's on Saturday", "am I free Tuesday afternoon", "when is my dentist appointment") rather than a request to add something — in that case leave candidates empty. If it asks about a time period, set query_start/query_end to that range. If it asks about a specific event ("when is Maya's piano lesson", "where is the team offsite"), set search_query to describe it, and set query_start/query_end only if the question also gives a date hint.`,
           `Set intent to "update" if the text asks to change, reschedule, rename, or move an existing event — leave candidates empty, describe the event to find in search_query, and put only the fields that should change in changes. Only set search_start/search_end if the text itself gives a date/time hint for the event you're searching for ("tomorrow's dentist", "my Friday meeting") — if it gives none ("cancel my dentist appointment"), omit both rather than guessing a narrow range; the backend searches broadly by default when they're absent.`,
           `Set intent to "delete" if the text asks to cancel, delete, or remove an existing event — leave candidates empty, and set search_query (and search_start/search_end, following the same omit-if-no-hint rule) the same way as for "update".`,
           `Set intent to "unknown" if the text is none of create/query/update/delete.`,
         ].join(" "),
-    `If a create request describes a repeating event ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body. If the text also names specific dates to skip within that recurrence ("except the following dates: ..."), list each one in exception_dates.`,
+    `If a create request describes a repeating event with a definite schedule ("every Monday", "daily until June", "weekly for 8 weeks"), set that candidate's recurrence field to an RRULE body — but not for a loose pattern ("usually the last Wednesday, or sometimes mid-month"); add just the dated occurrence the text gives. If the text also names specific dates to skip within that recurrence ("except the following dates: ..."), list each one in exception_dates.`,
   ].join(" ");
 
   const content: Anthropic.ContentBlockParam[] =
