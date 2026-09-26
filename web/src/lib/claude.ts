@@ -355,3 +355,101 @@ export async function selectAnswerEvents(
     latencyMs: Date.now() - startedAt,
   };
 }
+
+const REPLY_TOOL: Anthropic.Tool = {
+  name: "apply_reply_to_summary",
+  description:
+    "Records what the user's reply asks kinroo to do to the numbered events in a summary it sent. Each operation targets one numbered item. The app carries out the operations and reports back; it does nothing for items no operation mentions.",
+  input_schema: {
+    type: "object",
+    properties: {
+      operations: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            item: { type: "integer", description: "The item's number in the summary." },
+            op: {
+              type: "string",
+              enum: ["undo", "change"],
+              description:
+                "'undo' reverses what kinroo did to that item: removes an event it added, reverts an event it changed, or restores one it canceled. 'change' edits the item — set only the fields the reply changes.",
+            },
+            title: { type: "string" },
+            start: { type: "string", description: "ISO 8601 datetime with UTC offset." },
+            end: { type: "string", description: "ISO 8601 datetime with UTC offset. Omit unless the reply states an end or a length." },
+            location: { type: "string" },
+          },
+          required: ["item", "op"],
+        },
+      },
+      unclear: {
+        type: "boolean",
+        description:
+          "True if the reply asks for something that can't be expressed as undo/change on the listed items, or doesn't say which item it means when that matters. An acknowledgement like 'thanks' or 'looks good' is not unclear — it's zero operations.",
+      },
+    },
+    required: ["operations", "unclear"],
+  },
+};
+
+export interface ReplyOperation {
+  item: number;
+  op: "undo" | "change";
+  title?: string;
+  start?: string;
+  end?: string;
+  location?: string;
+}
+
+// Turns a free-text reply to an auto-apply summary email ("1 is at 7pm,
+// remove 2") into per-item operations. Only returns operations — the app
+// validates each against the batch and does the calendar writes itself.
+export async function interpretSummaryReply(
+  replyText: string,
+  items: Array<{ n: number; line: string }>,
+  opts: { timezone: string; referenceDate: Date },
+): Promise<{ operations: ReplyOperation[]; unclear: boolean; model: string; promptTokens: number; completionTokens: number }> {
+  const referenceLabel = opts.referenceDate.toLocaleString("en-US", {
+    timeZone: opts.timezone,
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+  const system = [
+    `The user emailed kinroo.ai some text; kinroo put the events it found on their calendar and replied with a numbered summary. The user has now replied to that summary. Work out what their reply asks for, as operations on the numbered items.`,
+    `Current date/time: ${referenceLabel} (timezone: ${opts.timezone}). Resolve relative dates and times against it, and write datetimes as ISO 8601 with the UTC offset in effect on that date.`,
+    `A new time on an event that already has a date keeps that date unless the reply names a different day. "Everything", "all of them" and similar apply to every listed item. Items the reply doesn't mention get no operation.`,
+  ].join(" ");
+  const summary = items.map((i) => `${i.n}. ${i.line}`).join("\n");
+
+  const response = await getClient().messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 1024,
+    system,
+    tools: [REPLY_TOOL],
+    tool_choice: { type: "tool", name: "apply_reply_to_summary" },
+    messages: [{ role: "user", content: `Summary items:\n${summary}\n\nUser's reply:\n${replyText}` }],
+  });
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+  );
+  if (!toolUse) throw new Error("Claude did not return the expected tool call");
+  const parsed = toolUse.input as { operations?: unknown; unclear?: unknown };
+  const operations = Array.isArray(parsed.operations)
+    ? parsed.operations.filter(
+        (op): op is ReplyOperation =>
+          typeof op === "object" &&
+          op !== null &&
+          Number.isInteger((op as ReplyOperation).item) &&
+          ((op as ReplyOperation).op === "undo" || (op as ReplyOperation).op === "change"),
+      )
+    : [];
+  return {
+    operations,
+    unclear: parsed.unclear === true,
+    model: DEFAULT_MODEL,
+    promptTokens: response.usage.input_tokens,
+    completionTokens: response.usage.output_tokens,
+  };
+}

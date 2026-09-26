@@ -29,6 +29,13 @@
       "when": 1790213483234,
       "tag": "0003_nifty_stark_industries",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790440229445,
+      "tag": "0004_auto_apply",
+      "breakpoints": true
     }
   ]
 }

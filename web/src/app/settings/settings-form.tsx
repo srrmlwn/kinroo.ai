@@ -6,7 +6,8 @@ interface SettingsValues {
   timezone: string;
   defaultEventDurationMin: number;
   defaultCalendarId: string;
-  confirmBeforeWrite: boolean;
+  emailAutoApply: boolean;
+  extensionAutoApply: boolean;
 }
 
 interface CalendarOption {
@@ -58,6 +59,8 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
           timezone: values.timezone,
           defaultEventDurationMin: values.defaultEventDurationMin,
           defaultCalendarId: values.defaultCalendarId,
+          emailAutoApply: values.emailAutoApply,
+          extensionAutoApply: values.extensionAutoApply,
         }),
       });
       if (!res.ok) {
@@ -140,10 +143,39 @@ export function SettingsForm({ initial }: { initial: SettingsValues }) {
         </span>
       </label>
 
-      <label className="flex items-center gap-2 text-sm text-gray-500">
-        <input type="checkbox" checked={values.confirmBeforeWrite} disabled />
-        <span>Confirm before every write (always on)</span>
-      </label>
+      <fieldset className="flex flex-col gap-3 text-sm">
+        <legend className="mb-1 font-medium">Add events without asking first</legend>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={values.emailAutoApply}
+            onChange={(e) => setValues((v) => ({ ...v, emailAutoApply: e.target.checked }))}
+          />
+          <span>
+            Email
+            <span className="block text-xs text-gray-500">
+              Changes from emails you send kinroo go straight on your calendar. kinroo replies with what it did,
+              with one-click undo and edit links. Turn this off to reply YES/NO to each email instead.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={values.extensionAutoApply}
+            onChange={(e) => setValues((v) => ({ ...v, extensionAutoApply: e.target.checked }))}
+          />
+          <span>
+            Chrome extension
+            <span className="block text-xs text-gray-500">
+              Changes are made as soon as they&rsquo;re read, with an Undo button. Anything missing a date or
+              title, or an edit or cancellation that matches more than one event, still waits for you to review it.
+            </span>
+          </span>
+        </label>
+      </fieldset>
 
       <button
         type="submit"

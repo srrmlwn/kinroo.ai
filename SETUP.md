@@ -71,7 +71,7 @@ Set `googleClientId` to the Client ID from step 2. Leave `apiBase` as `http://lo
 cd web && npm run db:migrate
 ```
 
-This applies `web/drizzle/0000_*.sql` through `0002_*.sql` (already generated from the schema) to your Neon database — creates `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`, `waitlist_signups`.
+This applies every migration in `web/drizzle/` (already generated from the schema) that your Neon database doesn't have yet — creates `users`, `oauth_tokens`, `settings`, `llm_calls`, `email_identities`, `pending_email_actions`, `email_batches`, `waitlist_signups`. Rerun it after pulling changes that add a migration, against each database you use (local dev and production).
 
 ## 8. Run it
 
@@ -106,9 +106,10 @@ SendGrid login: `kinroo.ai@gmail.com` — reusing the account from the `simple-f
    - This step also tells you the MX record to add at your DNS provider for that subdomain — add it and wait for propagation.
 4. **SendGrid → Settings → API Keys → Create API Key** — needs "Mail Send" permission. This is `SENDGRID_API_KEY`.
 5. Generate `EMAIL_INGEST_WEBHOOK_SECRET` with `openssl rand -base64 32` and fill in all four new vars in `web/.env` (and your Vercel project's env config, once deployed).
-6. Test by emailing `add@<EMAIL_INGEST_DOMAIN>` something like "dentist appointment 9am tomorrow" from the address you signed into the extension with — you should get a confirmation email back asking to reply YES/NO.
+6. Test by emailing `add@<EMAIL_INGEST_DOMAIN>` something like "dentist appointment 9am tomorrow" from the address you signed into the extension with. With email auto-apply on (the default, on the settings page) the event is added right away and you get a numbered summary back with Remove/Edit links — try replying "move 1 to 10am". With it off, you get a confirmation email asking to reply YES/NO instead. Replies and confirmations come back through the same Inbound Parse host (`batch+<id>@` and `confirm+<id>@` addresses on `EMAIL_INGEST_DOMAIN`), so there's nothing extra to set up for them.
+   - Auto-apply needs the message to carry a DKIM signature from your own address's domain (Gmail, Outlook and most providers sign by default). If your provider doesn't, emails fall back to YES/NO confirmation.
 
-This can't be verified from this repo alone (needs a real domain, DNS propagation, and a public deployment) — the code path (`api/email/inbound`) is covered by unit tests on its pure parsing logic (`lib/email-inbound.test.ts`) but not exercised end-to-end.
+This can't be verified from this repo alone (needs a real domain, DNS propagation, and a public deployment) — the code path (`api/email/inbound`) is covered by unit tests on its parsing helpers (`lib/email-inbound.test.ts`), the auto-apply batch logic (`lib/email-batch.test.ts`), and route-level tests with Calendar, Claude, and the database mocked (`api/email/inbound/route.test.ts`), but not exercised end-to-end.
 
 ## 11. Deploying `web/` to Vercel
 

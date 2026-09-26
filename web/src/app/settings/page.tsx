@@ -41,7 +41,8 @@ export default async function SettingsPage() {
           timezone: row.timezone,
           defaultEventDurationMin: row.defaultEventDurationMin,
           defaultCalendarId: row.defaultCalendarId,
-          confirmBeforeWrite: row.confirmBeforeWrite,
+          emailAutoApply: row.emailAutoApply,
+          extensionAutoApply: row.extensionAutoApply,
         }}
       />
     </main>

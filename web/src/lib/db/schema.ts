@@ -39,9 +39,17 @@ export const settings = pgTable("settings", {
   defaultEventDurationMin: integer("default_event_duration_min")
     .notNull()
     .default(30),
-  // Always true in v1 — no UI to change it yet, but the column exists so
-  // adding that UI later is additive, not a migration.
+  // Whether each channel writes straight to the calendar and reports back
+  // (with one-click undo), or holds changes for review first. Email defaults
+  // to writing directly: a reply-to-confirm round trip is slow, easy to
+  // miss, and every change is cheap to undo. The extension defaults to its
+  // review screen, where confirming is one click. See SPEC.md → Auto-apply.
+  // Unused — superseded by the two flags below. Left in place so the
+  // deployment that's live while migrations run keeps working (it still
+  // reads this column); drop it in a later migration.
   confirmBeforeWrite: boolean("confirm_before_write").notNull().default(true),
+  emailAutoApply: boolean("email_auto_apply").notNull().default(true),
+  extensionAutoApply: boolean("extension_auto_apply").notNull().default(false),
   defaultCalendarId: text("default_calendar_id").notNull().default("primary"),
 });
 
@@ -78,6 +86,29 @@ export const pendingEmailActions = pgTable("pending_email_actions", {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+// Everything kinroo did in response to one inbound email when email
+// auto-apply is on (settings.email_auto_apply): which events it added,
+// changed, or canceled, plus the ones it held back (missing a date, or
+// already on the calendar). The numbered summary email is rendered from
+// `items`, and undo links / free-text replies act on it by item number —
+// see lib/email-batch.ts. Kept after the fact too, as the record of how
+// often auto-applied changes get undone or edited.
+export const emailBatches = pgTable("email_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  fromAddress: text("from_address").notNull(),
+  subject: text("subject").notNull(),
+  items: jsonb("items").notNull(), // BatchItem[] (lib/email-batch.ts)
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 // Landing-page waitlist — deliberately outside the users/oauth_tokens graph

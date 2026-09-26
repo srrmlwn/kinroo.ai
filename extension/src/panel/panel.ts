@@ -895,8 +895,7 @@ async function handleParsed(current: ReadyView, result: ParseResponse, submitted
       selected: action.type === "create" || result.actions.length === 1,
     }));
     const annotated = await annotateConflicts(editable);
-    pendingFocus = "#review-heading";
-    setState({
+    const reviewing: ReadyView = {
       ...current,
       pendingFile: undefined,
       busy: false,
@@ -909,7 +908,20 @@ async function handleParsed(current: ReadyView, result: ParseResponse, submitted
       answerEvents: undefined,
       answerQuery: undefined,
       confirming: { actions: annotated, submittedText },
-    });
+    };
+    // "Add without asking" (settings.extension_auto_apply): save straight
+    // away through the same path the confirm button uses, which ends on the
+    // usual "Added…" notice with Undo. Anything that needs a decision still
+    // gets the review screen — a missing date or title, or an edit/cancel
+    // that matched more than one event. If the save fails, handleConfirm
+    // leaves the review screen up with the error, same as a manual confirm.
+    if (result.autoApply && canSaveWithoutReview(annotated)) {
+      setState(reviewing);
+      await handleConfirm(reviewing);
+      return;
+    }
+    pendingFocus = "#review-heading";
+    setState(reviewing);
     announce(describeReview(annotated));
     return;
   }
@@ -1179,6 +1191,11 @@ function buildSavedNotice(saved: EditableAction[], total: number): { text: strin
       ? { href: calendarDayUrl(firstWithDate.action.candidate.start), label: "View in Calendar" }
       : undefined;
   return { text, link };
+}
+
+function canSaveWithoutReview(items: EditableAction[]): boolean {
+  if (items.length === 0 || items.some((item) => !isActionComplete(item.action))) return false;
+  return items.length === 1 || items.every((item) => item.action.type === "create");
 }
 
 async function handleConfirm(current: ReadyView) {

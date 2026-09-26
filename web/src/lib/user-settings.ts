@@ -6,6 +6,8 @@ export interface UserSettings {
   timezone: string;
   defaultEventDurationMin: number;
   defaultCalendarId: string;
+  emailAutoApply: boolean;
+  extensionAutoApply: boolean;
 }
 
 // Shared by every read path that needs a user's calendar/parsing
@@ -21,5 +23,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     timezone: row?.timezone ?? "UTC",
     defaultEventDurationMin: row?.defaultEventDurationMin ?? 30,
     defaultCalendarId: row?.defaultCalendarId ?? "primary",
+    emailAutoApply: row?.emailAutoApply ?? true,
+    extensionAutoApply: row?.extensionAutoApply ?? false,
   };
 }

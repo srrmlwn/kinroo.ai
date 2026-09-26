@@ -48,7 +48,7 @@ To load the extension in Chrome during development: `chrome://extensions` → en
 - **TypeScript everywhere**, strict mode.
 - **No separate backend framework.** If a route handler needs shared logic, put it in `web/src/lib/`, not a new server.
 - **Never hardcode `'primary'` as a calendar ID inline** — always read it from settings (see `SPEC.md` → Family-readiness notes). This is the one convention that's cheap now and expensive to retrofit.
-- **Confirm before every write.** No code path creates or modifies a Google Calendar event without a user-facing confirmation step, regardless of parser confidence. This is a product trust decision, not a suggestion.
+- **Every write is either confirmed first or reported with a one-click undo.** No code path changes a Google Calendar event silently. Channels either show a confirmation step before writing (the extension's review screen, email reply-to-confirm) or, when the user has turned on auto-apply for that channel (`settings.email_auto_apply` / `extension_auto_apply`), write immediately and report exactly what changed with an undo for each change. A write that can't be undone doesn't qualify for auto-apply. This is a product trust decision, not a suggestion — see `SPEC.md` → Auto-apply.
 - **Explicit `userId`/`calendarId` parameters** through application code — no global "current user" singleton.
 - Log every parse (fast-path or LLM) to `llm_calls`, fire-and-forget — telemetry must never add latency to the user-facing response.
 
