@@ -25,6 +25,8 @@ describe("looksLikeQuery", () => {
     "which days am I busy next week",
     "can I fit in a run tomorrow",
     "dinner with sam friday?",
+    "list events for the weekend",
+    "list me my events for tomorrow",
   ])("treats %j as a query", (text) => {
     expect(looksLikeQuery(text)).toBe(true);
   });
@@ -226,8 +228,19 @@ describe("fastPathQueryRange", () => {
     "show me my schedule for Saturday",
     "anything on Tuesday",
     "How many events are on Sunday?",
+    "list events for the weekend",
   ])("answers the plain listing question %j without Claude", (text) => {
     expect(fastPathQueryRange(text, REF, TZ)).not.toBeNull();
+  });
+
+  // Regression: an email's subject line gets prepended to the body before
+  // this ever sees the text (see api/email/inbound), and "Test" isn't a
+  // listing word — this must defer to Claude rather than let chrono's
+  // "weekend" match slip through with an unrelated word attached, which is
+  // exactly how a real inbound email once turned "list events for the
+  // weekend" into a fake "Test List me events for the" calendar event.
+  it("defers to Claude when a leading email subject pollutes the listing words", () => {
+    expect(fastPathQueryRange("Test\n\nList me events for the weekend", REF, TZ)).toBeNull();
   });
 
   it.each([
