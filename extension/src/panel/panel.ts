@@ -79,6 +79,9 @@ type View =
       answerEvents?: CalendarEvent[];
       // "Yes." / "No." for a yes/no question, shown ahead of the answer.
       answerLead?: string;
+      // When the answer was given (ms since epoch) — persisted with it so a
+      // restored answer can be dropped once it's stale (ANSWER_DRAFT_TTL_MS).
+      answeredAt?: number;
       // What was asked to produce `answer` — same "You said" purpose as
       // ConfirmingState.submittedText.
       answerQuery?: string;
@@ -213,6 +216,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       answer: draft.text,
       answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
       answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
+      answeredAt: typeof draft.answeredAt === "number" ? draft.answeredAt : Date.now(),
       confirming: undefined,
       notice: undefined,
       noticeError: undefined,
@@ -257,7 +261,13 @@ function persistDraft(view: View) {
   const payload = view.confirming
     ? { kind: "confirming", actions: view.confirming.actions }
     : view.answer !== undefined
-      ? { kind: "answer", text: view.answer, events: view.answerEvents, lead: view.answerLead }
+      ? {
+          kind: "answer",
+          text: view.answer,
+          events: view.answerEvents,
+          lead: view.answerLead,
+          answeredAt: view.answeredAt,
+        }
       : { kind: "ready", inputText };
   chrome.storage.local.set({ draft: payload }).catch(() => {});
 }
@@ -641,6 +651,7 @@ function enterReady(
     answer?: string;
     answerEvents?: CalendarEvent[];
     answerLead?: string;
+    answeredAt?: number;
   },
 ): void {
   avatarMenuOpen = false;
@@ -660,9 +671,22 @@ function enterReady(
     answer: opts?.answer,
     answerEvents: opts?.answerEvents,
     answerLead: opts?.answerLead,
+    answeredAt: opts?.answeredAt,
   });
   if (cachedCalendarLabel === undefined) loadCalendarLabel(email);
   loadUpcoming(email);
+}
+
+// An answer describes the calendar as it was when it was asked — "what's on
+// today" is wrong by tomorrow — so a reopened panel only brings one back if
+// it's recent. Past that, the panel opens to an empty compose box and the
+// live upcoming list instead. A draft with no answeredAt (saved before this
+// existed) counts as stale. Unsent text and unconfirmed changes don't
+// expire: those are the user's own work in progress, not a snapshot.
+const ANSWER_DRAFT_TTL_MS = 30 * 60_000;
+
+function isFreshAnswer(answeredAt: unknown): boolean {
+  return typeof answeredAt === "number" && Date.now() - answeredAt < ANSWER_DRAFT_TTL_MS;
 }
 
 // Shared by a fresh panel open (init) and a reconnect after an expired
@@ -674,11 +698,12 @@ async function restoreDraftAndEnter(email: string): Promise<void> {
     enterReady(email, { confirming: { actions: draft.actions } });
     return;
   }
-  if (draft?.kind === "answer" && typeof draft.text === "string") {
+  if (draft?.kind === "answer" && typeof draft.text === "string" && isFreshAnswer(draft.answeredAt)) {
     enterReady(email, {
       answer: draft.text,
       answerEvents: Array.isArray(draft.events) ? draft.events : undefined,
       answerLead: typeof draft.lead === "string" ? draft.lead : undefined,
+      answeredAt: draft.answeredAt,
     });
     return;
   }
@@ -843,6 +868,7 @@ async function handleParsed(current: ReadyView, result: ParseResponse, submitted
       answer,
       answerEvents: result.queryEvents,
       answerLead: result.answerLead,
+      answeredAt: Date.now(),
       answerQuery: submittedText,
     });
     announce(describeAnswer(answer, result.queryEvents, result.answerLead));
@@ -1918,6 +1944,19 @@ function renderAnswerText(text: string): string {
   return blocks.join("");
 }
 
+// An answer lists every event that matches the question — unlike the
+// upcoming list, there's no "see the rest in Google Calendar" link that
+// could stand in for them, since Google Calendar can't be opened filtered
+// to just the matches. The cap is only a guard against a runaway list
+// ("everything this year"); past it, the count line still gives the total
+// and a note says how to narrow it down.
+const ANSWER_EVENT_LIMIT = 100;
+
+function renderAnswerOverflow(events: CalendarEvent[]): string {
+  if (events.length <= ANSWER_EVENT_LIMIT) return "";
+  return `<p class="answer-overflow">Showing the first ${ANSWER_EVENT_LIMIT}. Ask about a shorter time range to see the rest.</p>`;
+}
+
 // With tiles, `text` isn't shown, so a yes/no lead ("No.") goes in front of
 // the count line; without them, `text` already starts with it.
 function renderAnswer(
@@ -1927,7 +1966,7 @@ function renderAnswer(
   lead: string | undefined,
 ): string {
   const body = events?.length
-    ? `<p class="answer-lead">${lead ? `${escapeHtml(lead)} ` : ""}${escapeHtml(eventCountLead(events))}</p>${renderEventTiles(events)}`
+    ? `<p class="answer-lead">${lead ? `${escapeHtml(lead)} ` : ""}${escapeHtml(eventCountLead(events))}</p>${renderEventTiles(events.slice(0, ANSWER_EVENT_LIMIT))}${renderAnswerOverflow(events)}`
     : renderAnswerText(text);
   return `
     ${renderSaidLine(submittedText)}
