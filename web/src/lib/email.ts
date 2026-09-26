@@ -4,10 +4,14 @@ function requireEnv(name: string): string {
   return value;
 }
 
-// The address inbound replies get routed back to — see api/email/inbound
-// for how the local-part encodes what's being replied to.
+// Deliberately a different domain than EMAIL_INGEST_DOMAIN — SendGrid's
+// Sender Authentication (SPF/DKIM) is set up for the root domain (SETUP.md
+// §10 step 2), while EMAIL_INGEST_DOMAIN is a subdomain only used for
+// receiving via Inbound Parse. Sending "From" an address on a domain
+// SendGrid hasn't authenticated gets rejected with a 403 Sender Identity
+// error, even though the two domains share a registrant.
 export function fromAddress(): string {
-  return `kinroo@${requireEnv("EMAIL_INGEST_DOMAIN")}`;
+  return `kinroo@${requireEnv("EMAIL_FROM_DOMAIN")}`;
 }
 
 export function confirmReplyAddress(pendingActionId: string): string {
