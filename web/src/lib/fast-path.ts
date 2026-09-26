@@ -4,9 +4,13 @@ import type { EventCandidate } from "./google-calendar";
 // A question word or phrase at the start, or a trailing "?". The negative
 // lookahead keeps pasted invite fields ("When: Sunday 3pm", "What: Maya's
 // party") from reading as questions, and "do"/"did"/"will" only count with
-// "I"/"we" after them so "Do laundry Saturday" is still a create.
+// "I"/"we" after them so "Do laundry Saturday" is still a create. "list"/
+// "list me" is an imperative, not a question, but reads the same as "show
+// me" — without it, "List events for the weekend" fell through to the
+// create fast path and chrono happily matched "weekend" as a date, turning
+// the whole request into a fake event titled after everything before it.
 const QUESTION_PATTERN =
-  /^(?:(?:what|whats|what's|when|whens|when's|where|which|who|how)\b(?!\s*:)|(?:do|did|will|am|have|can) (?:i|we)\b|(?:is|are) (?:there|i|we)\b|any(?:thing)?\b|show me\b)/i;
+  /^(?:(?:what|whats|what's|when|whens|when's|where|which|who|how)\b(?!\s*:)|(?:do|did|will|am|have|can) (?:i|we)\b|(?:is|are) (?:there|i|we)\b|any(?:thing)?\b|show me\b|list(?: me)?\b)/i;
 
 export function looksLikeQuery(text: string): boolean {
   const trimmed = text.trim();
@@ -153,7 +157,7 @@ function zonedDayBoundaries(instant: Date, timeZone: string): { start: Date; end
 const LISTING_WORDS = new Set([
   "what", "whats", "what's", "do", "i", "we", "have", "has", "got", "any", "anything", "plans",
   "plan", "planned", "events", "event", "is", "are", "there", "on", "for", "going", "happening",
-  "show", "me", "my", "our", "schedule", "calendar", "look", "looks", "like", "does", "the",
+  "show", "list", "me", "my", "our", "schedule", "calendar", "look", "looks", "like", "does", "the",
   // "How many events are on Sunday" is the same list, counted.
   "how", "many",
 ]);
