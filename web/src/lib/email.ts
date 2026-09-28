@@ -33,6 +33,9 @@ export async function sendEmail(opts: {
   to: string;
   subject: string;
   text: string;
+  // Sent alongside `text` as the preferred part; `text` stays as the
+  // fallback for clients that only show plain text.
+  html?: string;
   replyTo?: string;
 }): Promise<void> {
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
@@ -46,7 +49,18 @@ export async function sendEmail(opts: {
       from: { email: fromAddress(), name: "kinroo.ai" },
       reply_to: opts.replyTo ? { email: opts.replyTo } : undefined,
       subject: opts.subject,
-      content: [{ type: "text/plain", value: opts.text }],
+      content: [
+        { type: "text/plain", value: opts.text },
+        ...(opts.html ? [{ type: "text/html", value: opts.html }] : []),
+      ],
+      // SendGrid rewrites links through its own tracking redirect by
+      // default, which breaks them whenever the account's link-branding
+      // domain doesn't resolve, and the undo links carry a signed token that
+      // shouldn't pass through a third party anyway.
+      tracking_settings: {
+        click_tracking: { enable: false, enable_text: false },
+        open_tracking: { enable: false },
+      },
     }),
   });
   if (!res.ok) {

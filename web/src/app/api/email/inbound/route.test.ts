@@ -25,7 +25,7 @@ const state = {
   settings: { timezone: TZ, defaultEventDurationMin: 30, defaultCalendarId: "cal", emailAutoApply: true, extensionAutoApply: false },
   inserts: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   batchRow: null as null | Record<string, unknown>,
-  sent: [] as Array<{ to: string; subject: string; text: string; replyTo?: string }>,
+  sent: [] as Array<{ to: string; subject: string; text: string; html?: string; replyTo?: string }>,
   parseActions: [] as EventAction[],
 };
 
@@ -130,6 +130,7 @@ describe("inbound email: auto-apply", () => {
     expect(mail.text).toContain("1. Added: PTA General Board Meeting");
     expect(mail.text).toMatch(/Remove: https:\/\/kinroo\.ai\/email\/undo\?t=\S+/);
     expect(mail.text).toContain("Undo everything from this email:");
+    expect(mail.html).toMatch(/<a href="https:\/\/kinroo\.ai\/email\/undo\?t=[^"]+">Remove<\/a>/);
   });
 
   it("falls back to reply-to-confirm when DKIM isn't from the sender's domain", async () => {
