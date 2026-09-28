@@ -340,28 +340,41 @@ export interface SummaryLinks {
   undo: (item: number | "all") => string;
 }
 
-// Plain text on purpose: it renders the same in every mail client, and the
-// numbers are what a reply refers back to.
-export function renderBatchSummary(batch: EmailBatch, timezone: string, links: SummaryLinks): string {
-  const lines: string[] = [];
+// A line of the summary: plain text runs and links. Rendered twice — as
+// HTML, where a link is just its label ("Remove"), and as the plain-text
+// alternative, where it has to spell out the URL.
+type Segment = string | { label: string; href: string };
+type Line = Segment[];
+
+export interface RenderedSummary {
+  text: string;
+  html: string;
+}
+
+// The numbers are what a reply refers back to, so every item keeps one in
+// both versions.
+export function renderBatchSummary(batch: EmailBatch, timezone: string, links: SummaryLinks): RenderedSummary {
+  const lines: Line[] = [];
   const applied = batch.items.filter((i) => i.status === "applied");
   const needsInfo = batch.items.filter((i) => i.status === "needs-info");
   const other = batch.items.filter((i) => i.status !== "applied" && i.status !== "needs-info");
 
   if (applied.length) {
-    lines.push("On your calendar:");
+    lines.push(["On your calendar:"]);
     for (const item of applied) {
-      lines.push(`${item.n}. ${verb(item)}: ${describe(item, timezone)}${item.edited ? " (edited)" : ""}`);
-      const undoLabel = item.action.type === "create" ? "Remove" : "Undo";
-      lines.push(`   ${undoLabel}: ${links.undo(item.n)}`);
-      if (item.htmlLink && item.action.type !== "delete") lines.push(`   Edit in Google Calendar: ${item.htmlLink}`);
+      const line: Line = [`${item.n}. ${verb(item)}: ${describe(item, timezone)}${item.edited ? " (edited)" : ""}`];
+      line.push(" — ", { label: item.action.type === "create" ? "Remove" : "Undo", href: links.undo(item.n) });
+      if (item.htmlLink && item.action.type !== "delete") {
+        line.push(" · ", { label: "Edit in Google Calendar", href: item.htmlLink });
+      }
+      lines.push(line);
     }
-    lines.push("");
+    lines.push([]);
   }
   if (needsInfo.length) {
-    lines.push("Not added yet — missing a date/time or title:");
-    for (const item of needsInfo) lines.push(`${item.n}. ${describe(item, timezone)}`);
-    lines.push("");
+    lines.push(["Not added yet — missing a date/time or title:"]);
+    for (const item of needsInfo) lines.push([`${item.n}. ${describe(item, timezone)}`]);
+    lines.push([]);
   }
   if (other.length) {
     for (const item of other) {
@@ -371,19 +384,50 @@ export function renderBatchSummary(batch: EmailBatch, timezone: string, links: S
           : item.status === "undone"
             ? verb(item)
             : "Couldn't save this one";
-      lines.push(`${item.n}. ${label}: ${describe(item, timezone)}`);
+      lines.push([`${item.n}. ${label}: ${describe(item, timezone)}`]);
     }
-    lines.push("");
+    lines.push([]);
   }
 
   if (!applied.length && !needsInfo.length) {
-    lines.push("Nothing new was added.");
+    lines.push(["Nothing new was added."]);
   } else {
-    lines.push('To change anything, reply in plain words — for example "1 is at 7pm", "remove 2", or');
-    lines.push('"3 is on Oct 1 at 6pm" to add one that was missing a time.');
-    if (applied.length > 1) lines.push(`Undo everything from this email: ${links.undo("all")}`);
+    lines.push([
+      'To change anything, reply in plain words — for example "1 is at 7pm", "remove 2", or "3 is on Oct 1 at 6pm" to add one that was missing a time.',
+    ]);
+    if (applied.length > 1) lines.push([{ label: "Undo everything from this email", href: links.undo("all") }]);
   }
-  return lines.join("\n");
+
+  const text = lines
+    .map((line) => line.map((seg) => (typeof seg === "string" ? seg : `${seg.label}: ${seg.href}`)).join(""))
+    .join("\n");
+  const html = lines
+    .map((line) =>
+      line
+        .map((seg) =>
+          typeof seg === "string"
+            ? escapeHtml(seg)
+            : `<a href="${escapeHtml(seg.href)}">${escapeHtml(seg.label)}</a>`,
+        )
+        .join(""),
+    )
+    .join("<br>\n");
+  return { text, html };
+}
+
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Wraps rendered lines in a minimal, client-safe HTML body (inline styles
+// only — most mail clients strip <style>). `intro` is plain text.
+export function summaryHtml(summary: RenderedSummary, intro?: string): string {
+  const introHtml = intro ? `${escapeHtml(intro).replace(/\n/g, "<br>\n")}<br>\n<br>\n` : "";
+  return `<div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111;">\n${introHtml}${summary.html}\n</div>`;
 }
 
 export function summarySubject(batch: EmailBatch): string {

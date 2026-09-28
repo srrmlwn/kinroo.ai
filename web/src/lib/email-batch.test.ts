@@ -252,7 +252,7 @@ describe("undoFromLink", () => {
 
 describe("renderBatchSummary", () => {
   it("numbers items and gives each added event a remove and an edit link", () => {
-    const text = renderBatchSummary(
+    const { text, html } = renderBatchSummary(
       {
         id: "b",
         userId: "u1",
@@ -273,5 +273,30 @@ describe("renderBatchSummary", () => {
     expect(text).toContain("3. [Adams] The Big Give launch — no date or time found");
     expect(text).toContain("2. Already on your calendar, not added again");
     expect(text).not.toContain("Undo everything");
+
+    // The HTML part links the label instead of printing the URL.
+    expect(html).toContain('1. Added: [Adams] PTA General Board Meeting');
+    expect(html).toContain('<a href="https://kinroo.ai/email/undo?t=1">Remove</a>');
+    expect(html).toContain('<a href="https://cal/ev1">Edit in Google Calendar</a>');
+    expect(html).not.toContain("Remove: https://");
+  });
+
+  it("escapes event text in the HTML part", () => {
+    const { html } = renderBatchSummary(
+      {
+        id: "b",
+        userId: "u1",
+        fromAddress: "h@example.com",
+        subject: "",
+        items: [
+          { n: 1, action: create({ ...pta, title: "<b>Tom & Jerry</b>" }), status: "applied", eventId: "ev1" },
+          { n: 2, action: create(coffee), status: "applied", eventId: "ev2" },
+        ],
+      },
+      TZ,
+      { undo: (i) => `https://kinroo.ai/email/undo?t=${i}&x="y"` },
+    );
+    expect(html).toContain("&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;");
+    expect(html).toContain('<a href="https://kinroo.ai/email/undo?t=all&amp;x=&quot;y&quot;">Undo everything from this email</a>');
   });
 });

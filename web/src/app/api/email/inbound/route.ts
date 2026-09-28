@@ -19,6 +19,7 @@ import {
   itemStateLine,
   loadBatch,
   renderBatchSummary,
+  summaryHtml,
   saveBatchItems,
   summarySubject,
   undoItem,
@@ -135,11 +136,12 @@ async function summaryLinks(batch: EmailBatch, origin: string): Promise<SummaryL
 }
 
 async function sendSummary(batch: EmailBatch, timezone: string, origin: string, intro?: string) {
-  const body = renderBatchSummary(batch, timezone, await summaryLinks(batch, origin));
+  const summary = renderBatchSummary(batch, timezone, await summaryLinks(batch, origin));
   await sendEmail({
     to: batch.fromAddress,
     subject: summarySubject(batch),
-    text: intro ? `${intro}\n\n${body}` : body,
+    text: intro ? `${intro}\n\n${summary.text}` : summary.text,
+    html: summaryHtml(summary, intro),
     replyTo: batchReplyAddress(batch.id),
   }).catch((err) => console.error("[email/inbound] failed to send summary", err));
 }
